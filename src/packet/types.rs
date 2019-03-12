@@ -4,6 +4,9 @@ use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use serde::de::{self, Visitor, Error, SeqAccess};
 use serde::ser::{SerializeSeq, SerializeTuple};
 
+use std::io::{Read, Write};
+
+
 #[derive(Copy, Clone)]
 pub struct VarInt {
     val: u64
@@ -13,6 +16,14 @@ impl VarInt {
     pub fn new(val: u64) -> VarInt {
         VarInt { val }
     }
+}
+
+trait Writeable {
+    fn write<W: Write>(&self, w: W);
+}
+
+trait Readable {
+    fn read<R: Read>(&mut self, r: R);
 }
 
 impl Serialize for VarInt {
@@ -99,7 +110,27 @@ pub struct ByteArray {
 
 impl Serialize for ByteArray {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        panic!()
+        let mut tup = serializer.serialize_tuple(2)?;
+        tup.serialize_element(&self.len);
+        tup.serialize_element(self.data.as_slice());
+        tup.end()
+    }
+}
+
+impl Deserialize for ByteArray {
+    struct ByteArrayVisitor;
+
+    impl<'de> Visitor<'de> for ByteArrayVisitor {
+        type Value = ByteArray;
+    }
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a VarInt-prefixed byte array")
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+        let len: VarInt = seq.next_element()?;
+        let data: Vec<u8> = seq.next_element() 
     }
 
 }
