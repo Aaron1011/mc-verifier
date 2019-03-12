@@ -25,3 +25,18 @@ pub enum PacketState {
     Login,
     Play
 }
+
+pub enum Side {
+    Client,
+    Server
+}
+
+pub trait Packet {
+    // This is actually serialized as a VarInt,
+    // but we represent it as a u64 for convenience
+    // If Minecraft ever has more than 2**64 packets,
+    // we'll have (several) problems
+    const ID: u64;
+    const STATE: PacketState;
+    const SIDE: Side;
+}

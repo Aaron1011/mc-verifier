@@ -4,7 +4,7 @@ use tokio::prelude::*;
 use tokio::io::copy;
 use tokio::net::TcpListener;
 
-mod packet;
+pub mod packet;
 
 struct ClientFuture {
     // The naming is a little weird - a 'Server'
@@ -17,6 +17,7 @@ struct ClientFuture {
 //}
 
 fn main() {
+    //let a: crate::packet::Packet = panic!();
     /*let addr = "127.0.0.1:25567".parse().unwrap();
     let listener = TcpListener::bind(addr).expect("Unable to bind TCP listener!");
 

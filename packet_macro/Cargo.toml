@@ -1,0 +1,16 @@
+[package]
+name = "packet_macro"
+version = "0.1.0"
+authors = ["Aaron Hill <aa1ronham@gmail.com>"]
+edition = "2018"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "0.6.11"
+proc-macro2 = "0.4.27"
+
+[dependencies.syn]
+version = "0.15.29"
+features = ["full", "extra-traits"]

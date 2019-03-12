@@ -7,3 +7,5 @@ edition = "2018"
 [dependencies]
 ozelot = "0.8.0"
 tokio = "0.1.16"
+byteorder = "1.3.1"
+packet_macro = { path = "packet_macro" }

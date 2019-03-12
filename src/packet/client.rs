@@ -1,10 +1,17 @@
 use super::types::*;
+use packet_macro::packet;
 
+#[packet(id = 0, side = "Client", state = "Login")]
 pub struct Handshake {
     pub version: VarInt,
     pub address: String,
     pub port: u16,
 }
+
+/*impl Packet for Handshake {
+    const SIDE: Side = crate::packet::Side::Client;
+}*/
+
 
 
 pub struct LoginStart {
