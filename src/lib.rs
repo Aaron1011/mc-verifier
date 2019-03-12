@@ -1,3 +1,5 @@
+extern crate serde;
+
 use ozelot::Server;
 
 use tokio::prelude::*;

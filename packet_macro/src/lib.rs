@@ -109,7 +109,10 @@ pub fn packet(attr: TokenStream, item: TokenStream) -> TokenStream {
     let packet_state = packet_state.expect("Packet state not found!");
     let packet_side = packet_side.expect("Packet side not found!");
 
+
     let gen = quote! {
+
+        #[derive(::serde::Serialize, ::serde::Deserialize)]
         #user_struct
 
         impl Packet for #name {
