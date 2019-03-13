@@ -5,7 +5,7 @@ use packet_macro::{packets, packet};
 
 packets!{[
 
-    #[packet(id = 0, side = "Client", state = "Login")]
+    #[packet(id = 0, side = "Client", state = "Handshaking")]
     pub struct Handshake {
         pub version: VarInt,
         pub address: String,
@@ -13,8 +13,10 @@ packets!{[
         pub next_state: VarInt
     }
 
-    #[packet(id = 1, side = "Client", state = "Login")]
-    pub struct Foo;
+    #[packet(id = 0, side = "Client", state = "Login")]
+    pub struct LoginStart {
+        pub name: String
+    }
 
 ]}
 
@@ -23,10 +25,6 @@ packets!{[
 }*/
 
 
-
-pub struct LoginStart {
-    pub name: String
-}
 
 pub struct EncryptionResponse {
     pub shared_secret: ByteArray,

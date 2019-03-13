@@ -7,10 +7,17 @@ use serde::ser::{SerializeSeq, SerializeTuple};
 
 use std::io::{Read, Write, ErrorKind};
 use std::fmt::Debug;
+use std::any::Any;
 
 #[derive(Copy, Clone, Default, Debug)]
 pub struct VarInt {
     val: u64
+}
+
+#[derive(Debug)]
+pub struct ParsedPacket {
+    pub boxed: Box<Packet>,
+    pub any: Box<Any>
 }
 
 impl VarInt {

@@ -12,8 +12,10 @@ use tokio::codec::BytesCodec;
 use bytes::BytesMut;
 
 use std::net::SocketAddr;
+use std::any::Any;
 
 use packet::*;
+use packet::client::Handshake;
 
 pub mod packet;
 
@@ -24,7 +26,15 @@ struct ClientFuture {
     client: Server
 }
 
-struct PacketCodec;
+struct PacketCodec {
+    state: u64
+}
+
+impl PacketCodec {
+    fn new() -> PacketCodec {
+        PacketCodec { state: 0 }
+    }
+}
 
 impl Encoder for PacketCodec {
     type Item = Box<Packet>;
@@ -62,14 +72,23 @@ impl Decoder for PacketCodec {
             return Ok(None)
         }
 
-        println!("Parsing packet!");
+        println!("Parsing packet with state: {}", self.state);
         let data = buf.split_to(len + diff);
 
-        let pkt = packet::parse_packet(&packet::client::HANDLER_MAP, &data);
+        let handlers = &(packet::client::HANDLERS)[self.state as usize];
+
+        let pkt = packet::parse_packet(handlers, &data);
+
+
 
         println!("Got packet: {:?}", pkt);
 
-        Ok(Some(pkt))
+        if let Ok(handshake) = pkt.any.downcast::<Handshake>() {
+            println!("Setting next state: {:?}", handshake.next_state);
+            self.state = handshake.next_state.into()
+        }
+
+        Ok(Some(pkt.boxed))
     }
 }
 
@@ -88,7 +107,7 @@ fn main() {
     let tcp_server = listener.incoming()
         .map_err(|e| eprintln!("accept failed = {:?}", e))
         .for_each(|socket| {
-            let framed = Framed::new(socket, PacketCodec);
+            let framed = Framed::new(socket, PacketCodec::new());
             let (_writer, reader) = framed.split();
 
             let processor = reader

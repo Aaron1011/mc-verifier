@@ -3,12 +3,12 @@ mod server;
 mod types;
 
 
-pub use types::{Packet, PacketState, Side, Readable, Writeable, VarInt, ReadResult, ReadErr};
+pub use types::{Packet, PacketState, Side, Readable, Writeable, VarInt, ReadResult, ReadErr, ParsedPacket};
 
 use std::io::Read;
 use std::collections::HashMap;
 
-pub fn parse_packet(handlers: &HashMap<u64, Box<Fn(&[u8]) -> Box<Packet> + Sync>>, mut data: &[u8]) -> Box<Packet> {
+pub fn parse_packet(handlers: &HashMap<u64, Box<Fn(&[u8]) -> ParsedPacket + Sync>>, mut data: &[u8]) -> ParsedPacket {
     let data_ref = &mut data;
     let reader = data_ref as &mut Read;
 

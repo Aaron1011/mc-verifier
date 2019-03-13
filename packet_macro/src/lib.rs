@@ -65,7 +65,11 @@ pub fn packets(input: TokenStream) -> proc_macro::TokenStream {
     let packets = syn::parse::<Packets>(input.clone()).expect("Packets parse failed");
     println!("Content: {:?}", packets.items);
 
-    let mut handlers = Vec::new();
+    let mut handshake_handlers = Vec::new();
+    let mut status_handlers = Vec::new();
+    let mut login_handlers = Vec::new();
+    let mut play_handlers = Vec::new();
+
 
     let mut macro_out = Vec::new();
     for packet in packets.items {
@@ -76,15 +80,26 @@ pub fn packets(input: TokenStream) -> proc_macro::TokenStream {
         let handler_id = packet_data.id;
         let name = packet_data.name;
         let handler_fn = quote! {
-            Box::new(|mut data: &[u8]| -> Box<crate::packet::Packet> {
+            Box::new(|mut data: &[u8]| -> crate::packet::ParsedPacket {
                 let mut pkt: #name = Default::default();
                 let reader: &mut ::std::io::Read = &mut data as &mut ::std::io::Read;
                 pkt.read(reader);
-                Box::new(pkt)
-            }) as Box<Fn(&[u8]) -> Box<Packet> + Sync>
+                crate::packet::ParsedPacket {
+                    boxed: Box::new(pkt.clone()),
+                    any: Box::new(pkt.clone())
+                }
+            }) as Box<Fn(&[u8]) -> crate::packet::ParsedPacket + Sync>
         };
         let insert_line = quote! {
             map.insert(#handler_id, #handler_fn);
+        };
+
+        let handlers = match packet_data.state.as_str() {
+            "Handshaking" => &mut handshake_handlers,
+            "Status" => &mut status_handlers,
+            "Login" => &mut login_handlers,
+            "Play" => &mut play_handlers,
+            _ => unreachable!() // We'll already have thrown an error
         };
         handlers.push(insert_line);
 
@@ -94,10 +109,29 @@ pub fn packets(input: TokenStream) -> proc_macro::TokenStream {
     TokenStream::from(quote! {
         use lazy_static::lazy_static;
         lazy_static! {
-            pub static ref HANDLER_MAP: ::std::collections::HashMap<u64, Box<Fn(&[u8]) -> Box<Packet> + Sync>> = {
-                let mut map = ::std::collections::HashMap::new();
-                #(#handlers)*
-                map
+            pub static ref HANDLERS: [::std::collections::HashMap<u64, Box<Fn(&[u8]) -> ParsedPacket + Sync>>; 4] = {
+                [
+                    {
+                        let mut map = ::std::collections::HashMap::new();
+                        #(#handshake_handlers)*
+                        map
+                    },
+                    {
+                        let mut map = ::std::collections::HashMap::new();
+                        #(#status_handlers)*
+                        map
+                    },
+                    {
+                        let mut map = ::std::collections::HashMap::new();
+                        #(#login_handlers)*
+                        map
+                    },
+                    {
+                        let mut map = ::std::collections::HashMap::new();
+                        #(#play_handlers)*
+                        map
+                    }
+                ]
             };
         }
         #(#macro_out)*
@@ -108,7 +142,7 @@ struct PacketData {
     expanded: proc_macro2::TokenStream,
     name: syn::Ident,
     id: u64,
-    state: proc_macro2::TokenStream,
+    state: String,
     side: proc_macro2::TokenStream
 }
 
@@ -164,8 +198,7 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
                         } else if val.ident.to_string() == "state" {
                             if let syn::Lit::Str(lit) = &val.lit {
                                 packet_state = Some(match lit.value().as_str() {
-                                    "Login" => quote!(#PacketState::Login),
-                                    "Play" => quote!(#PacketState::Play),
+                                    "Handshaking" | "Status" | "Login" | "Play" => lit.value().to_string(),
                                     _ => panic!("Unknown packet state {:?}", lit.value())
                                 })
                             } else {
