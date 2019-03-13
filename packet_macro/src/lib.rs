@@ -61,20 +61,52 @@ pub fn packets(input: TokenStream) -> proc_macro::TokenStream {
     let packets = syn::parse::<Packets>(input.clone()).expect("Packets parse failed");
     println!("Content: {:?}", packets.items);
 
+    let mut handlers = Vec::new();
+
     let mut macro_out = Vec::new();
     for packet in packets.items {
-        let expanded = expand_packet(packet);
+        let packet_data = expand_packet(packet);
+        let expanded = packet_data.expanded;
         macro_out.push(quote! { #expanded });
+
+        let handler_id = packet_data.id;
+        let name = packet_data.name;
+        let handler_fn = quote! {
+            |data: Vec<u8>| {
+                let mut pkt: #name = Default::default();
+                pkt.read(data);
+            }
+        };
+        let insert_line = quote! {
+            map.insert(#handler_id, #handler_fn);
+        };
+        handlers.push(insert_line);
+
     }
     //let item: Vec<syn::Item> = syn::parse(input.clone()).unwrap();
     //println!("Item: {:?}", item);
     TokenStream::from(quote! {
+        use lazy_static::lazy_static;
+        lazy_static! {
+            static ref HANDLER_MAP: ::std::collections::HashMap<u64, Fn(Vec<u8>)> = {
+                let mut map = ::std::collections::HashMap::new();
+                #(#handlers)*
+            };
+        }
         #(#macro_out)*
     })
 }
 
+struct PacketData {
+    expanded: proc_macro2::TokenStream,
+    name: syn::Ident,
+    id: u64,
+    state: proc_macro2::TokenStream,
+    side: proc_macro2::TokenStream
+}
+
 //#[proc_macro_attribute]
-fn expand_packet(mut user_struct: syn::ItemStruct) -> proc_macro2::TokenStream {
+fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
 
     println!("Struct: {:?}", user_struct);
     //let user_struct: syn::ItemStruct = syn::parse(item.clone()).unwrap();
@@ -194,5 +226,13 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> proc_macro2::TokenStream {
         }
     };
 
-    gen.into()
+    let expanded = gen.into();
+
+    PacketData {
+        expanded,
+        name,
+        id: packet_id,
+        state: packet_state,
+        side: packet_side
+    }
 }
