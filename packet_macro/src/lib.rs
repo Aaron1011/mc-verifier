@@ -1,7 +1,8 @@
 extern crate proc_macro;
 extern crate syn;
 
-use syn::Attribute;
+use syn::{Attribute, braced, bracketed, Item, ItemStruct};
+use syn::parse::{Parse, ParseStream};
 use quote::{quote};
 use proc_macro::TokenStream;
 
@@ -29,15 +30,60 @@ impl syn::parse::Parse for DummyParse {
     }
 }
 
+struct Packets {
+    items: Vec<ItemStruct>
+}
+
+impl Parse for Packets {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let content;
+        Ok(Packets {
+            items: {
+                bracketed!(content in input);
+                let mut items = Vec::new();
+                while !content.is_empty() {
+                    items.push(content.parse()?);
+                }
+                items
+            }
+        })
+    }
+}
+
 #[proc_macro_attribute]
-pub fn packet(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn packet(input: TokenStream, attr: TokenStream) -> TokenStream {
+    input
+}
 
-    let user_struct: syn::ItemStruct = syn::parse(item.clone()).unwrap();
+#[proc_macro]
+pub fn packets(input: TokenStream) -> proc_macro::TokenStream {
+    println!("Called packets: {:?}", input);
+    let packets = syn::parse::<Packets>(input.clone()).expect("Packets parse failed");
+    println!("Content: {:?}", packets.items);
 
-    let args: proc_macro2::TokenStream = attr.into();
-    let full_attr = quote!(#[packet(#args)]);
+    let mut macro_out = Vec::new();
+    for packet in packets.items {
+        let expanded = expand_packet(packet);
+        macro_out.push(quote! { #expanded });
+    }
+    //let item: Vec<syn::Item> = syn::parse(input.clone()).unwrap();
+    //println!("Item: {:?}", item);
+    TokenStream::from(quote! {
+        #(#macro_out)*
+    })
+}
 
-    let attrs = syn::parse2::<DummyParse>(full_attr).expect("syn::parse failed").attrs;
+//#[proc_macro_attribute]
+fn expand_packet(mut user_struct: syn::ItemStruct) -> proc_macro2::TokenStream {
+
+    println!("Struct: {:?}", user_struct);
+    //let user_struct: syn::ItemStruct = syn::parse(item.clone()).unwrap();
+
+    //let args: proc_macro2::TokenStream = attr.into();
+    //let full_attr = quote!(#[packet(#args)]);
+
+    //let attrs = syn::parse2::<DummyParse>(full_attr).expect("syn::parse failed").attrs;
+    //let attrs = user_struct.attrs;
 
     // Partially taken from
     // https://github.com/SergioBenitez/Rocket/blob/50567058841ca2b1cea265a779fa882438da0bad/core/codegen/src/lib.rs
@@ -51,18 +97,19 @@ pub fn packet(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut packet_state = None;
     let mut packet_side = None;
 
-    println!("Item: {:?}", item);
+    //println!("Item: {:?}", user_struct);
 
-    let function: syn::ItemStruct = syn::parse(item).expect("Failed to parse struct");
-    let name = function.ident;
+    //let function: syn::ItemStruct = syn::parse(item).expect("Failed to parse struct");
+    //let function = user_struct;
+    let name = user_struct.ident.clone();
 
-    for attr in &attrs {
+    user_struct.attrs.retain(|attr| {
         println!("Attr: {:?}", attr.path);
         let meta = attr.parse_meta().expect("Failed to parse meta");
         println!("Meta: {:?}", meta);
 
         if meta.name() != "packet" {
-            continue;
+            return true;
         }
 
         if let syn::Meta::List(params) = meta {
@@ -101,7 +148,8 @@ pub fn packet(attr: TokenStream, item: TokenStream) -> TokenStream {
                 }
             }
         }
-    }
+        return false;
+    });
 
     println!("Got: {:?} {:?} {:?}", packet_id, packet_state, packet_side);
 
