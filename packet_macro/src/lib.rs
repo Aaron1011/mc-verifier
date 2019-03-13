@@ -1,3 +1,5 @@
+#![recursion_limit="128"]
+
 extern crate proc_macro;
 extern crate syn;
 
@@ -17,6 +19,8 @@ pub enum Side {
     Client,
     Server
 }*/
+
+type Handler = Box<Fn(&[u8]) + Sync>;
 
 struct DummyParse {
     attrs: Vec<Attribute>
@@ -72,10 +76,12 @@ pub fn packets(input: TokenStream) -> proc_macro::TokenStream {
         let handler_id = packet_data.id;
         let name = packet_data.name;
         let handler_fn = quote! {
-            |data: Vec<u8>| {
+            Box::new(|mut data: &[u8]| -> Box<crate::packet::Packet> {
                 let mut pkt: #name = Default::default();
-                pkt.read(data);
-            }
+                let reader: &mut ::std::io::Read = &mut data as &mut ::std::io::Read;
+                pkt.read(reader);
+                Box::new(pkt)
+            }) as Box<Fn(&[u8]) -> Box<Packet> + Sync>
         };
         let insert_line = quote! {
             map.insert(#handler_id, #handler_fn);
@@ -88,9 +94,10 @@ pub fn packets(input: TokenStream) -> proc_macro::TokenStream {
     TokenStream::from(quote! {
         use lazy_static::lazy_static;
         lazy_static! {
-            static ref HANDLER_MAP: ::std::collections::HashMap<u64, Fn(Vec<u8>)> = {
+            pub static ref HANDLER_MAP: ::std::collections::HashMap<u64, Box<Fn(&[u8]) -> Box<Packet> + Sync>> = {
                 let mut map = ::std::collections::HashMap::new();
                 #(#handlers)*
+                map
             };
         }
         #(#macro_out)*
@@ -196,13 +203,13 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
         println!("Ty: {:?}", field.ty);
         let ident = field.ident.as_ref().unwrap();
         write_vars.push(quote! { self.#ident.write(w); } );
-        read_vars.push(quote! { self.#ident.read(r); } );
+        read_vars.push(quote! { self.#ident.read(r)?; } );
     }
 
 
     let gen = quote! {
 
-        #[derive(Default, Clone)]
+        #[derive(Default, Clone, Debug)]
         #user_struct
 
         impl Packet for #name {
@@ -212,16 +219,17 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
         }
 
         impl crate::packet::Writeable for #name {
-            fn write<W: ::std::io::Write>(&self, w: &mut W) {
+            fn write(&self, w: &mut ::std::io::Write) {
                 //let p: Box<Packet> = Box::new(self);
                 #(#write_vars)*
             }
         }
 
         impl crate::packet::Readable for #name {
-            fn read<R: ::std::io::Read>(&mut self, r: &mut R) {
+            fn read(&mut self, r: &mut ::std::io::Read) -> crate::packet::ReadResult {
                 //let p: Box<Packet> = Box::new(self);
                 #(#read_vars)*
+                Ok(())
             }
         }
     };

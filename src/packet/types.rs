@@ -5,10 +5,10 @@ use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
 use serde::de::{self, Visitor, Error, SeqAccess};
 use serde::ser::{SerializeSeq, SerializeTuple};
 
-use std::io::{Read, Write};
+use std::io::{Read, Write, ErrorKind};
+use std::fmt::Debug;
 
-
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 pub struct VarInt {
     val: u64
 }
@@ -31,51 +31,106 @@ impl Into<usize> for VarInt {
     }
 }
 
+#[derive(Debug)]
+pub enum ReadErr {
+    // The provided buffer was too small
+    TooSmall,
+    // Some IO error
+    IoError(std::io::Error),
+    // Something else
+    Other(Box<std::error::Error + Send + Sync>)
+}
+
+impl std::error::Error for ReadErr {
+    fn description(&self) -> &str {
+        return "Dummy description";
+    }
+
+    fn cause(&self) -> Option<&dyn std::error::Error> {
+        None
+    }
+}
+
+impl Into<std::io::Error> for ReadErr {
+    fn into(self) -> std::io::Error {
+        match self {
+            ReadErr::TooSmall => std::io::Error::new(ErrorKind::UnexpectedEof, "Too Small"),
+            ReadErr::IoError(e) => e,
+            ReadErr::Other(e) => std::io::Error::new(ErrorKind::Other, e)
+        }
+    }
+}
+
+impl std::fmt::Display for ReadErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl From<std::string::FromUtf8Error> for ReadErr {
+    fn from(e: std::string::FromUtf8Error) -> ReadErr {
+        ReadErr::Other(Box::new(e))
+    }
+}
+
+impl From<std::io::Error> for ReadErr {
+    fn from(e: std::io::Error) -> ReadErr {
+        match e.kind() {
+            ErrorKind::UnexpectedEof => ReadErr::TooSmall,
+            _ => ReadErr::IoError(e)
+        }
+    }
+}
+
+pub type ReadResult = Result<(), ReadErr>;
+
 pub trait Writeable {
-    fn write<W: Write>(&self, w: &mut W);
+    fn write(&self, w: &mut Write);
 }
 
 pub trait Readable {
-    fn read<R: Read>(&mut self, r: &mut R);
+    fn read(&mut self, r: &mut Read) -> ReadResult;
 }
 
 impl Readable for u16 {
-    fn read<R: Read>(&mut self, r: &mut R) {
-        *self = r.read_u16::<BigEndian>().expect("Failed to read u16");
+    fn read(&mut self, r: &mut Read) -> ReadResult {
+        *self = r.read_u16::<BigEndian>()?;
+        Ok(())
     }
 }
 
 impl Writeable for u16 {
-    fn write<W: Write>(&self, w: &mut W) {
+    fn write(&self, w: &mut Write) {
         w.write_u16::<BigEndian>(*self).expect("Failed to write VarInt!");
     }
 }
 
 impl Writeable for [u8] {
-    fn write<W: Write>(&self, w: &mut W) {
+    fn write(&self, w: &mut Write) {
         w.write_all(&self).expect("Failed to write [u8]");
     }
 }
 
 impl Readable for String {
-    fn read<R: Read>(&mut self, r: &mut R) {
+    fn read(&mut self, r: &mut Read) -> ReadResult {
         let mut len = VarInt::new(0);
         len.read(r);
         let mut data = vec![0; len.into()];
-        r.read_exact(&mut data).expect("Failed to read String!");
-        *self = String::from_utf8(data).unwrap();
+        r.read_exact(&mut data)?;
+        *self = String::from_utf8(data)?;
+        Ok(())
     }
 }
 
 impl Writeable for String {
-    fn write<W: Write>(&self, w: &mut W) {
+    fn write(&self, w: &mut Write) {
         VarInt::new(self.len() as u64).write(w);
         self.as_bytes().write(w);
     }
 }
 
 impl Writeable for VarInt {
-    fn write<W: Write>(&self, w: &mut W) {
+    fn write(&self, w: &mut Write) {
         let mut val = self.val;
 
         loop {
@@ -93,14 +148,14 @@ impl Writeable for VarInt {
 }
 
 impl Readable for VarInt {
-    fn read<R: Read>(&mut self, r: &mut R) {
+    fn read(&mut self, r: &mut Read) -> ReadResult {
         let mut data = [0u8];
 
         let mut num_read = 0u64;
         let mut result = 0u64;
         //let mut read: u8;
         loop {
-            r.read_exact(&mut data).expect("Failed to read VarInt");
+            r.read_exact(&mut data)?;
             let val: u8 = data[0] & 0b01111111;
             result |= (val << (7 * num_read)) as u64;
 
@@ -115,6 +170,7 @@ impl Readable for VarInt {
         }
 
         self.val = result;
+        Ok(())
     }
 }
 
@@ -242,7 +298,7 @@ pub enum Side {
     Server
 }
 
-pub trait Packet: Readable + Writeable + Clone {
+pub trait Packet: Readable + Writeable + Debug {
     // This is actually serialized as a VarInt,
     // but we represent it as a u64 for convenience
     // If Minecraft ever has more than 2**64 packets,
