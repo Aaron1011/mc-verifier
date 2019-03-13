@@ -157,11 +157,11 @@ impl Readable for VarInt {
         loop {
             r.read_exact(&mut data)?;
             let val: u8 = data[0] & 0b01111111;
-            result |= (val << (7 * num_read)) as u64;
+            result |= ((val as u64) << (7 * num_read));
 
             num_read += 1;
             if (num_read > 5) {
-                panic!("VarInt is too large!");
+                panic!("VarInt is too big!");
             }
 
             if (data[0] & 0b10000000) == 0 {

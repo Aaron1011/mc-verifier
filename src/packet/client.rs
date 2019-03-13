@@ -10,6 +10,7 @@ packets!{[
         pub version: VarInt,
         pub address: String,
         pub port: u16,
+        pub next_state: VarInt
     }
 
     #[packet(id = 1, side = "Client", state = "Login")]
