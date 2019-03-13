@@ -2,4 +2,4 @@ mod client;
 mod server;
 mod types;
 
-pub use types::{Packet, PacketState, Side};
+pub use types::{Packet, PacketState, Side, Readable, Writeable};

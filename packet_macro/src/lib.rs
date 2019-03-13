@@ -109,16 +109,40 @@ pub fn packet(attr: TokenStream, item: TokenStream) -> TokenStream {
     let packet_state = packet_state.expect("Packet state not found!");
     let packet_side = packet_side.expect("Packet side not found!");
 
+    let mut write_vars = Vec::new();
+    let mut read_vars = Vec::new();
+
+    for field in user_struct.fields.iter() {
+        println!("Ty: {:?}", field.ty);
+        let ident = field.ident.as_ref().unwrap();
+        write_vars.push(quote! { self.#ident.write(w); } );
+        read_vars.push(quote! { self.#ident.read(r); } );
+    }
+
 
     let gen = quote! {
 
-        #[derive(::serde::Serialize, ::serde::Deserialize)]
+        #[derive(Default, Clone)]
         #user_struct
 
         impl Packet for #name {
-            const ID: u64 = #packet_id;
+            /*const ID: u64 = #packet_id;
             const STATE: PacketState = #packet_state;
-            const SIDE: Side = #packet_side;
+            const SIDE: Side = #packet_side;*/
+        }
+
+        impl crate::packet::Writeable for #name {
+            fn write<W: ::std::io::Write>(&self, w: &mut W) {
+                //let p: Box<Packet> = Box::new(self);
+                #(#write_vars)*
+            }
+        }
+
+        impl crate::packet::Readable for #name {
+            fn read<R: ::std::io::Read>(&mut self, r: &mut R) {
+                //let p: Box<Packet> = Box::new(self);
+                #(#read_vars)*
+            }
         }
     };
 
