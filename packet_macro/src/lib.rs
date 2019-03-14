@@ -3,37 +3,11 @@
 extern crate proc_macro;
 extern crate syn;
 
-use syn::{Attribute, braced, bracketed, Item, ItemStruct, Ident};
+use syn::{bracketed, ItemStruct, Ident};
 use syn::parse::{Parse, ParseStream};
 use quote::{quote};
 use proc_macro::TokenStream;
 use proc_macro2::Span;
-
-/*pub trait Packet {}
-
-pub enum PacketState {
-    Login,
-    Play
-}
-
-pub enum Side {
-    Client,
-    Server
-}*/
-
-type Handler = Box<Fn(&[u8]) + Sync>;
-
-struct DummyParse {
-    attrs: Vec<Attribute>
-}
-
-impl syn::parse::Parse for DummyParse {
-    fn parse(input: syn::parse::ParseStream) -> syn::parse::Result<Self> {
-        Ok(DummyParse {
-            attrs: Attribute::parse_outer(input)?
-        })
-    }
-}
 
 struct Packets {
     items: Vec<ItemStruct>
@@ -56,15 +30,13 @@ impl Parse for Packets {
 }
 
 #[proc_macro_attribute]
-pub fn packet(input: TokenStream, attr: TokenStream) -> TokenStream {
+pub fn packet(input: TokenStream, _attr: TokenStream) -> TokenStream {
     input
 }
 
 #[proc_macro]
 pub fn packets(input: TokenStream) -> proc_macro::TokenStream {
-    println!("Called packets: {:?}", input);
     let packets = syn::parse::<Packets>(input.clone()).expect("Packets parse failed");
-    println!("Content: {:?}", packets.items);
 
     let mut handshake_handlers = Vec::new();
     let mut status_handlers = Vec::new();
@@ -106,7 +78,6 @@ pub fn packets(input: TokenStream) -> proc_macro::TokenStream {
 
     }
     //let item: Vec<syn::Item> = syn::parse(input.clone()).unwrap();
-    //println!("Item: {:?}", item);
     TokenStream::from(quote! {
         use lazy_static::lazy_static;
         lazy_static! {
@@ -144,13 +115,11 @@ struct PacketData {
     name: syn::Ident,
     id: u64,
     state: String,
-    side: String
 }
 
 //#[proc_macro_attribute]
 fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
 
-    println!("Struct: {:?}", user_struct);
     //let user_struct: syn::ItemStruct = syn::parse(item.clone()).unwrap();
 
     //let args: proc_macro2::TokenStream = attr.into();
@@ -163,24 +132,18 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
     // https://github.com/SergioBenitez/Rocket/blob/50567058841ca2b1cea265a779fa882438da0bad/core/codegen/src/lib.rs
     //
 
-    let Packet = quote!(crate::packet::Packet);
-    let PacketState = quote!(crate::packet::PacketState);
-    let Side = quote!(crate::packet::Side);
 
     let mut packet_id = None;
     let mut packet_state = None;
     let mut packet_side = None;
 
-    //println!("Item: {:?}", user_struct);
 
     //let function: syn::ItemStruct = syn::parse(item).expect("Failed to parse struct");
     //let function = user_struct;
     let name = user_struct.ident.clone();
 
     user_struct.attrs.retain(|attr| {
-        println!("Attr: {:?}", attr.path);
         let meta = attr.parse_meta().expect("Failed to parse meta");
-        println!("Meta: {:?}", meta);
 
         if meta.name() != "packet" {
             return true;
@@ -223,7 +186,6 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
         return false;
     });
 
-    println!("Got: {:?} {:?} {:?}", packet_id, packet_state, packet_side);
 
     let packet_id = packet_id.expect("Packet id not found!");
     let packet_state = packet_state.expect("Packet state not found!");
@@ -235,7 +197,6 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
 
     //let mut lowername = Ident::new(&format!("handler.on_{}(self)", &name.clone().to_string().to_lowercase()), Span::call_site());
     //let invoke = quote! { #lowername (self); };
-    //println!("Lowername: {}", lowername);
 
     let handler_invoke = match packet_side.as_str() {
         "Client" => quote! { 
@@ -267,7 +228,6 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
     let mut read_vars = Vec::new();
 
     for field in user_struct.fields.iter() {
-        println!("Ty: {:?}", field.ty);
         let ident = field.ident.as_ref().unwrap();
         write_vars.push(quote! { self.#ident.write(w); } );
         read_vars.push(quote! { self.#ident.read(r)?; } );
@@ -316,6 +276,5 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
         name,
         id: packet_id,
         state: packet_state,
-        side: packet_side
     }
 }
