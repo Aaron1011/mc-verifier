@@ -8,6 +8,7 @@ use openssl::rsa::{Rsa, Padding};
 use openssl::pkey::Private;
 use openssl::pkey::PKey;
 use openssl::rand::rand_bytes;
+use openssl::sha::Sha1;
 
 use tokio::prelude::*;
 use tokio::prelude::stream::iter_ok;
@@ -20,6 +21,7 @@ use bytes::BytesMut;
 use bytes::buf::BufMut;
 use std::borrow::BorrowMut;
 
+
 use std::net::SocketAddr;
 use std::any::Any;
 use std::sync::Arc;
@@ -28,6 +30,9 @@ use std::io::ErrorKind;
 use packet::*;
 use packet::client::*;
 use packet::server::*;
+
+use hyper::Client;
+use hyper_tls::HttpsConnector;
 
 use tokio::prelude::stream::SplitSink;
 
@@ -52,19 +57,25 @@ impl PacketCodec {
 
 struct SimpleHandler {
     result: Vec<Box<Packet>>,
+    future: Option<Box<Future<Item = (), Error = std::io::Error> + Send>>,
     public_key: Option<PKey<Private>>,
     encoded_public_key: Option<Vec<u8>>,
-    verify_token: Option<[u8; 4]>
+    verify_token: Option<[u8; 4]>,
+    username: Option<String>,
+    server_id: String
 }
 
 impl SimpleHandler {
 
-    fn new() -> SimpleHandler {
+    fn new(server_id: String) -> SimpleHandler {
         SimpleHandler {
             result: Vec::new(),
             public_key: None,
             encoded_public_key: None,
-            verify_token: None
+            verify_token: None,
+            future: None,
+            username: None,
+            server_id
         }
     }
 
@@ -77,6 +88,28 @@ impl SimpleHandler {
         self.public_key = Some(public_key);
     }
 
+    fn server_hash(&self, secret: &[u8]) -> String {
+        let mut sha = Sha1::new();
+        sha.update(self.server_id.as_bytes());
+        sha.update(secret);
+        sha.update(self.encoded_public_key.as_ref().unwrap());
+        let hash = sha.finish();
+
+        // Weird Minecraft-specific encoding: see https://wiki.vg/Protocol_Encryption
+
+        let mut encoded = String::new();
+        if hash[0] & 0x80 != 0 {
+            encoded.push('-'); // The hash is 'negative'
+        }
+
+        encoded += &hex::encode(hash);
+        encoded
+    }
+
+}
+
+fn convert_hyper_err(err: hyper::error::Error) -> std::io::Error {
+    std::io::Error::new(ErrorKind::Other, err)
 }
 
 impl ClientHandler for SimpleHandler {
@@ -88,6 +121,8 @@ impl ClientHandler for SimpleHandler {
     fn on_loginstart(&mut self, login_start: &LoginStart) {
         println!("LoginStart handler: {:?}", login_start);
 
+        self.username = Some(login_start.name.clone());
+
         self.gen_keypair();
 
         let mut verify_token = [0; 4];
@@ -95,7 +130,7 @@ impl ClientHandler for SimpleHandler {
         self.verify_token = Some(verify_token);
 
         self.result.push(Box::new(EncryptionRequest {
-            server_id: "Hi".to_string(),
+            server_id: self.server_id.clone(),
             pub_key: ByteArray::new(self.encoded_public_key.clone().unwrap()),
             verify_token: ByteArray::new(verify_token.to_vec())
         }));
@@ -126,7 +161,29 @@ impl ClientHandler for SimpleHandler {
 
         println!("Verify token matches! Shared secret: {:?}", &secret[..secret_len]);
 
+        let hash = self.server_hash(&secret[..secret_len]);
 
+        // 4 is number of blocking DNS threads
+        let https = HttpsConnector::new(4).unwrap();
+        let client = Client::builder().build::<_, hyper::Body>(https);
+        let uri = format!("https://sessionserver.mojang.com/session/minecraft/hasJoined?username={}&serverId={}", self.username.as_ref().unwrap(), &hash)
+            .parse().unwrap();
+
+        println!("Sending request: {:?}", uri);
+
+        self.future = Some(Box::new(client.get(uri)
+            .and_then(|res| {
+                println!("Got response: {:?}", res);
+
+                res.into_body().fold(vec![], |mut acc, chunk| {
+                    acc.extend_from_slice(&chunk);
+                    tokio::prelude::future::ok::<Vec<u8>, hyper::error::Error>(acc)
+                }).map(|v| String::from_utf8(v).unwrap())
+                .map(|data| {
+                    println!("Got body: {:?}", data);
+                })
+
+            }).map_err(convert_hyper_err)));
     }
 }
 
@@ -228,19 +285,26 @@ fn main() {
 
 
             let new_tx = tx.clone();
-            let mut handler = SimpleHandler::new();
+            let mut handler = SimpleHandler::new("MyServer".to_string());
 
             let processor = reader
                 .for_each(move |pkt| {
 
-
                     pkt.handle_client(&mut handler);
 
                     let packets: Vec<Box<Packet>> = handler.result.drain(..).collect();
+                    let future_opt = handler.future.take();
 
                     new_tx.clone().send_all(iter_ok(packets))
                         .map(|v| ())
                         .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
+                        .and_then(|_| {
+                            if let Some(future) = future_opt {
+                                future
+                            } else {
+                                Box::new(tokio::prelude::future::ok(()))
+                            }
+                        })
 
                     /*writer.send_all(iter_ok::<_, std::io::Error>(packets)).map(|_v| ())
                         .map_err(|err| {
