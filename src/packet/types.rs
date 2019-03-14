@@ -52,7 +52,7 @@ pub enum ReadErr {
 
 impl std::error::Error for ReadErr {
     fn description(&self) -> &str {
-        return "Dummy description";
+        "Dummy description"
     }
 
     fn cause(&self) -> Option<&dyn std::error::Error> {
@@ -144,7 +144,7 @@ impl Writeable for VarInt {
 
         loop {
             let mut temp: u8 = (val & 0b01111111) as u8;
-            val = val >> 7;
+            val >>= 7;
             if val != 0 {
                 temp |= 0b10000000;
             }
@@ -166,7 +166,7 @@ impl Readable for VarInt {
         loop {
             r.read_exact(&mut data)?;
             let val: u8 = data[0] & 0b01111111;
-            result |= (val as u64) << (7 * num_read);
+            result |= u64::from(val) << (7 * num_read);
 
             num_read += 1;
             if num_read > 5 {
