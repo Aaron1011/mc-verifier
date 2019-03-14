@@ -1,5 +1,5 @@
 pub mod client;
-mod server;
+pub mod server;
 mod types;
 
 

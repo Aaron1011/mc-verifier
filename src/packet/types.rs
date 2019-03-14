@@ -24,6 +24,12 @@ impl VarInt {
     pub fn new(val: u64) -> VarInt {
         VarInt { val }
     }
+
+    pub fn from_read(r: &mut Read) -> Result<VarInt, ReadErr> {
+        let mut var_int = VarInt::new(0);
+        var_int.read(r)?;
+        Ok(var_int)
+    }
 }
 
 impl Into<u64> for VarInt {
@@ -181,9 +187,26 @@ impl Readable for VarInt {
     }
 }
 
+#[derive(Clone, Default, Debug)]
 pub struct ByteArray {
     pub len: VarInt,
     pub data: Vec<u8>
+}
+
+impl Readable for ByteArray {
+    fn read(&mut self, r: &mut Read) -> ReadResult {
+        let len = VarInt::from_read(r)?;
+        let mut data = vec![0; len.into()];
+        r.read_exact(&mut data)?;
+        Ok(())
+    }
+}
+
+impl Writeable for ByteArray {
+    fn write(&self, w: &mut Write) {
+        self.len.write(w);
+        self.data.as_slice().write(w); 
+    }
 }
 
 
@@ -305,7 +328,9 @@ pub enum Side {
     Server
 }
 
-pub trait Packet: Readable + Writeable + Debug {
+pub trait Packet: Readable + Writeable + Debug + Send {
+
+    fn get_id(&self) -> VarInt;
 
     fn handle_client(&self, handler: &mut crate::packet::ClientHandler);
 

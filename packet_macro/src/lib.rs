@@ -282,6 +282,10 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
 
         impl Packet for #name {
 
+            fn get_id(&self) -> VarInt {
+                VarInt::new(#packet_id)
+            }
+
             #handler_invoke
 
             /*const ID: u64 = #packet_id;

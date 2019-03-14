@@ -5,17 +5,26 @@ extern crate serde;
 use ozelot::Server;
 
 use tokio::prelude::*;
+use tokio::prelude::stream::iter_ok;
+use tokio::sync::mpsc::channel;
 use tokio::io::copy;
 use tokio::net::TcpListener;
 use tokio::codec::{Decoder, Encoder, Framed};
 use tokio::codec::BytesCodec;
 use bytes::BytesMut;
+use bytes::buf::BufMut;
+use std::borrow::BorrowMut;
 
 use std::net::SocketAddr;
 use std::any::Any;
+use std::sync::Arc;
+use std::io::ErrorKind;
 
 use packet::*;
 use packet::client::*;
+use packet::server::*;
+
+use tokio::prelude::stream::SplitSink;
 
 pub mod packet;
 
@@ -36,15 +45,33 @@ impl PacketCodec {
     }
 }
 
-struct SimpleHandler;
+struct SimpleHandler {
+    result: Vec<Box<Packet>>
+}
+
+impl SimpleHandler {
+
+    fn new() -> SimpleHandler {
+        SimpleHandler { result: Vec::new() }
+    }
+
+}
 
 impl ClientHandler for SimpleHandler {
+
     fn on_handshake(&mut self, handshake: &Handshake) {
         println!("Handshake handler: {:?}", handshake);
     }
 
     fn on_loginstart(&mut self, login_start: &LoginStart) {
         println!("LoginStart handler: {:?}", login_start);
+
+
+        self.result.push(Box::new(EncryptionRequest {
+            server_id: "Hi".to_string(),
+            pub_key: Default::default(),
+            verify_token: Default::default()
+        }));
     }
 }
 
@@ -52,7 +79,21 @@ impl Encoder for PacketCodec {
     type Item = Box<Packet>;
     type Error = std::io::Error;
 
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, packet: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        let mut data = Vec::new();
+        packet.get_id().write(&mut data);
+        packet.write(&mut data);
+
+        let len = VarInt::new(data.len() as u64);
+
+        // Write the length of the id + data, followed
+        // by the id + data
+        let mut len_bytes: Vec<u8> = Vec::new();
+        len.write(&mut len_bytes);
+
+        dst.extend_from_slice(&len_bytes);
+        dst.extend_from_slice(&data);
+
         Ok(())
     }
 }
@@ -117,19 +158,40 @@ fn main() {
 
     let tcp_server = listener.incoming()
         .map_err(|e| eprintln!("accept failed = {:?}", e))
-        .for_each(|socket| {
+        .for_each(move |socket| {
             let framed = Framed::new(socket, PacketCodec::new());
-            let (_writer, reader) = framed.split();
+            let (writer, reader) = framed.split();
+            let (tx, rx) = channel(10);
 
+            let sink = rx.map_err(|e| std::io::Error::new(ErrorKind::Other, e)).forward(writer)
+                .map(|v| ())
+                .map_err(|e| eprintln!("Error when sending: {:?}", e));
+
+
+            
+            tokio::spawn(sink);
+
+
+            let new_tx = tx.clone();
 
             let processor = reader
-                .for_each(|pkt| {
+                .for_each(move |pkt| {
 
-                    let mut handler = SimpleHandler;
 
-                    println!("For each pkt: {:?}", pkt);
+                    let mut handler = SimpleHandler::new();
                     pkt.handle_client(&mut handler);
-                    Ok(())
+
+                    let packets: Vec<Box<Packet>> = handler.result.drain(..).collect();
+
+                    new_tx.clone().send_all(iter_ok(packets))
+                        .map(|v| ())
+                        .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
+
+                    /*writer.send_all(iter_ok::<_, std::io::Error>(packets)).map(|_v| ())
+                        .map_err(|err| {
+                            eprintln!("Error: {:?}", err);
+                            err
+                        })*/
                 })
                 .map_err(|err| {
                     eprintln!("IO Error: {:?}", err);
