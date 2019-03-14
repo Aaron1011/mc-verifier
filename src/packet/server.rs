@@ -5,3 +5,5 @@ struct EncryptionRequest {
     pub pub_key: ByteArray,
     pub verify_token: ByteArray
 }
+
+pub trait ServerHandler {}

@@ -4,6 +4,8 @@ mod types;
 
 
 pub use types::{Packet, PacketState, Side, Readable, Writeable, VarInt, ReadResult, ReadErr, ParsedPacket};
+pub use client::ClientHandler;
+pub use server::ServerHandler;
 
 use std::io::Read;
 use std::collections::HashMap;

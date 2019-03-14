@@ -3,10 +3,11 @@
 extern crate proc_macro;
 extern crate syn;
 
-use syn::{Attribute, braced, bracketed, Item, ItemStruct};
+use syn::{Attribute, braced, bracketed, Item, ItemStruct, Ident};
 use syn::parse::{Parse, ParseStream};
 use quote::{quote};
 use proc_macro::TokenStream;
+use proc_macro2::Span;
 
 /*pub trait Packet {}
 
@@ -143,7 +144,7 @@ struct PacketData {
     name: syn::Ident,
     id: u64,
     state: String,
-    side: proc_macro2::TokenStream
+    side: String
 }
 
 //#[proc_macro_attribute]
@@ -207,8 +208,7 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
                         } else if val.ident.to_string() == "side" {
                             if let syn::Lit::Str(lit) = &val.lit {
                                 packet_side = Some(match lit.value().as_str() {
-                                    "Client" => quote!(#Side::Client),
-                                    "Server" => quote!(#Side::Server),
+                                    "Client" | "Server" => lit.value().to_string(),
                                     _ => panic!("Unknown packet side {:?}", lit.value())
                                 })
                             } else {
@@ -229,6 +229,40 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
     let packet_state = packet_state.expect("Packet state not found!");
     let packet_side = packet_side.expect("Packet side not found!");
 
+    let method_name = Ident::new(&format!("on_{}", &name.clone().to_string().to_lowercase()), Span::call_site());
+
+    let invoke = quote! { handler.#method_name(self) };
+
+    //let mut lowername = Ident::new(&format!("handler.on_{}(self)", &name.clone().to_string().to_lowercase()), Span::call_site());
+    //let invoke = quote! { #lowername (self); };
+    //println!("Lowername: {}", lowername);
+
+    let handler_invoke = match packet_side.as_str() {
+        "Client" => quote! { 
+
+            fn handle_client(&self, handler: &mut crate::packet::ClientHandler) {
+                #invoke
+            }
+
+            fn handle_server(&self, handler: &mut crate::packet::ServerHandler) {
+                unreachable!()
+            }
+        },
+        "Server" => quote! {
+
+            fn handle_client(&self, handler: &mut crate::packet::ClientHandler) {
+                unreachable!()
+            }
+
+            fn handle_server(&self, handler: &mut crate::packet::ServerHandler) {
+                #invoke
+            }
+
+
+        },
+        _ => panic!("Unknown side {}", packet_side)
+    };
+
     let mut write_vars = Vec::new();
     let mut read_vars = Vec::new();
 
@@ -240,12 +274,16 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
     }
 
 
+
     let gen = quote! {
 
         #[derive(Default, Clone, Debug)]
         #user_struct
 
         impl Packet for #name {
+
+            #handler_invoke
+
             /*const ID: u64 = #packet_id;
             const STATE: PacketState = #packet_state;
             const SIDE: Side = #packet_side;*/

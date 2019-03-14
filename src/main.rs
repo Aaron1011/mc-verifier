@@ -15,7 +15,7 @@ use std::net::SocketAddr;
 use std::any::Any;
 
 use packet::*;
-use packet::client::Handshake;
+use packet::client::*;
 
 pub mod packet;
 
@@ -33,6 +33,18 @@ struct PacketCodec {
 impl PacketCodec {
     fn new() -> PacketCodec {
         PacketCodec { state: 0 }
+    }
+}
+
+struct SimpleHandler;
+
+impl ClientHandler for SimpleHandler {
+    fn on_handshake(&mut self, handshake: &Handshake) {
+        println!("Handshake handler: {:?}", handshake);
+    }
+
+    fn on_loginstart(&mut self, login_start: &LoginStart) {
+        println!("LoginStart handler: {:?}", login_start);
     }
 }
 
@@ -80,7 +92,6 @@ impl Decoder for PacketCodec {
         let pkt = packet::parse_packet(handlers, &data);
 
 
-
         println!("Got packet: {:?}", pkt);
 
         if let Ok(handshake) = pkt.any.downcast::<Handshake>() {
@@ -110,9 +121,14 @@ fn main() {
             let framed = Framed::new(socket, PacketCodec::new());
             let (_writer, reader) = framed.split();
 
+
             let processor = reader
-                .for_each(|bytes| {
-                    println!("bytes: {:?}", bytes);
+                .for_each(|pkt| {
+
+                    let mut handler = SimpleHandler;
+
+                    println!("For each pkt: {:?}", pkt);
+                    pkt.handle_client(&mut handler);
                     Ok(())
                 })
                 .map_err(|err| {

@@ -306,6 +306,12 @@ pub enum Side {
 }
 
 pub trait Packet: Readable + Writeable + Debug {
+
+    fn handle_client(&self, handler: &mut crate::packet::ClientHandler);
+
+    fn handle_server(&self, handler: &mut crate::packet::ServerHandler);
+
+
     // This is actually serialized as a VarInt,
     // but we represent it as a u64 for convenience
     // If Minecraft ever has more than 2**64 packets,

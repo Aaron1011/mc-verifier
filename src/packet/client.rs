@@ -25,6 +25,11 @@ packets!{[
 }*/
 
 
+pub trait ClientHandler {
+    fn on_handshake(&mut self, handshake: &Handshake);
+    fn on_loginstart(&mut self, login_start: &LoginStart);
+}
+
 
 pub struct EncryptionResponse {
     pub shared_secret: ByteArray,
