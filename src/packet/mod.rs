@@ -3,7 +3,7 @@ pub mod server;
 mod types;
 
 
-pub use types::{Packet, PacketState, Side, Readable, Writeable, VarInt, ReadResult, ReadErr, ParsedPacket};
+pub use types::{Packet, PacketState, Side, Readable, Writeable, VarInt, ReadResult, ReadErr, ParsedPacket, ByteArray};
 pub use client::ClientHandler;
 pub use server::ServerHandler;
 

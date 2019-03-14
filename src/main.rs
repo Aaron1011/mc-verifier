@@ -4,6 +4,11 @@ extern crate serde;
 
 use ozelot::Server;
 
+use openssl::rsa::Rsa;
+use openssl::pkey::Private;
+use openssl::pkey::PKey;
+use openssl::rand::rand_bytes;
+
 use tokio::prelude::*;
 use tokio::prelude::stream::iter_ok;
 use tokio::sync::mpsc::channel;
@@ -46,13 +51,30 @@ impl PacketCodec {
 }
 
 struct SimpleHandler {
-    result: Vec<Box<Packet>>
+    result: Vec<Box<Packet>>,
+    public_key: Option<PKey<Private>>,
+    encoded_public_key: Option<Vec<u8>>,
+    verify_token: Option<[u8; 4]>
 }
 
 impl SimpleHandler {
 
     fn new() -> SimpleHandler {
-        SimpleHandler { result: Vec::new() }
+        SimpleHandler {
+            result: Vec::new(),
+            public_key: None,
+            encoded_public_key: None,
+            verify_token: None
+        }
+    }
+
+    fn gen_keypair(&mut self) {
+        // Based on https://gist.github.com/rust-play/6509bead4c6e13345f6535faf2db06bf
+   
+        let private_key = Rsa::generate(1024).expect("Failed to make private key"); // Minecraft always uses 1024-bit keys
+        let public_key = PKey::from_rsa(private_key).expect("Failed to make public key");
+        self.encoded_public_key = Some(public_key.public_key_to_der().expect("Failed to DER-encode"));
+        self.public_key = Some(public_key);
     }
 
 }
@@ -66,11 +88,16 @@ impl ClientHandler for SimpleHandler {
     fn on_loginstart(&mut self, login_start: &LoginStart) {
         println!("LoginStart handler: {:?}", login_start);
 
+        self.gen_keypair();
+
+        let mut verify_token = [0; 4];
+        rand_bytes(&mut verify_token).expect("Failed to generate verify token");
+        self.verify_token = Some(verify_token);
 
         self.result.push(Box::new(EncryptionRequest {
             server_id: "Hi".to_string(),
-            pub_key: Default::default(),
-            verify_token: Default::default()
+            pub_key: ByteArray::new(self.encoded_public_key.clone().unwrap()),
+            verify_token: ByteArray::new(verify_token.to_vec())
         }));
     }
 }

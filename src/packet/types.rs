@@ -193,6 +193,15 @@ pub struct ByteArray {
     pub data: Vec<u8>
 }
 
+impl ByteArray {
+    pub fn new(data: Vec<u8>) -> ByteArray {
+        ByteArray {
+            len: VarInt::new(data.len() as u64),
+            data
+        }
+    }
+}
+
 impl Readable for ByteArray {
     fn read(&mut self, r: &mut Read) -> ReadResult {
         let len = VarInt::from_read(r)?;
