@@ -1,5 +1,4 @@
 use std::ops::Deref;
-use std::fmt;
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
 
 use std::io::{Read, Write, ErrorKind};
@@ -124,7 +123,7 @@ impl Writeable for [u8] {
 impl Readable for String {
     fn read(&mut self, r: &mut Read) -> ReadResult {
         let mut len = VarInt::new(0);
-        len.read(r);
+        len.read(r)?;
         let mut data = vec![0; len.into()];
         r.read_exact(&mut data)?;
         *self = String::from_utf8(data)?;
@@ -166,11 +165,11 @@ impl Readable for VarInt {
         //let mut read: u8;
         loop {
             r.read_exact(&mut data)?;
-            let val: u8 = dbg!(data[0] & 0b01111111);
-            result |= dbg!(((val as u64) << (7 * num_read)));
+            let val: u8 = data[0] & 0b01111111;
+            result |= (val as u64) << (7 * num_read);
 
             num_read += 1;
-            if (num_read > 5) {
+            if num_read > 5 {
                 panic!("VarInt is too big!");
             }
 

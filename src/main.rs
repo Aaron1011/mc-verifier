@@ -10,17 +10,12 @@ use openssl::symm::{Cipher, Mode, Crypter};
 use tokio::prelude::*;
 use tokio::prelude::stream::iter_ok;
 use tokio::sync::mpsc::channel;
-use tokio::io::copy;
 use tokio::net::TcpListener;
 use tokio::codec::{Decoder, Encoder, Framed};
-use tokio::codec::BytesCodec;
 use bytes::BytesMut;
-use bytes::buf::BufMut;
-use std::borrow::BorrowMut;
 
 
 use std::net::SocketAddr;
-use std::any::Any;
 use std::sync::{Arc, Mutex};
 use std::io::ErrorKind;
 
@@ -30,8 +25,6 @@ use packet::server::*;
 
 use hyper::Client;
 use hyper_tls::HttpsConnector;
-
-use tokio::prelude::stream::SplitSink;
 
 pub mod packet;
 
@@ -56,7 +49,7 @@ impl PacketCodec {
 
         let mut ciphertext = vec![0; raw.len() + enc.block_size];
 
-        let mut count = enc.encrypt.update(&raw, &mut ciphertext).unwrap();
+        let count = enc.encrypt.update(&raw, &mut ciphertext).unwrap();
         enc.encrypt.finalize(&mut ciphertext[count..]).unwrap();
         ciphertext.truncate(count);
 
@@ -219,14 +212,14 @@ impl ClientHandler for SimpleHandler {
                 .map(move |data| {
                     println!("Got body: {:?}", data);
 
-                    let mut encrypt = Crypter::new(
+                    let encrypt = Crypter::new(
                         Cipher::aes_128_cfb8(),
                         Mode::Encrypt,
                         &secret_key,
                         Some(&secret_key) // IV and secret are the same in Minecraft
                     ).unwrap();
 
-                    let mut decrypt = Crypter::new(
+                    let decrypt = Crypter::new(
                         Cipher::aes_128_cfb8(),
                         Mode::Decrypt,
                         &secret_key,
@@ -285,7 +278,7 @@ impl Decoder for PacketCodec {
 
         let len: usize = len.into();
 
-        if (buf.len() < len + diff) {
+        if buf.len() < len + diff {
             println!("Not enough data read, returning Ok(None)");
             return Ok(None)
         }
@@ -324,14 +317,14 @@ fn main() {
     let tcp_server = listener.incoming()
         .map_err(|e| eprintln!("accept failed = {:?}", e))
         .for_each(move |socket| {
-            let mut crypto: Arc<Mutex<Option<Encryption>>> = Arc::new(Mutex::new(None));
-            let mut codec = PacketCodec::new(crypto.clone());
+            let crypto: Arc<Mutex<Option<Encryption>>> = Arc::new(Mutex::new(None));
+            let codec = PacketCodec::new(crypto.clone());
             let framed = Framed::new(socket, codec);
             let (writer, reader) = framed.split();
             let (tx, rx) = channel(10);
 
             let sink = rx.map_err(|e| std::io::Error::new(ErrorKind::Other, e)).forward(writer)
-                .map(|v| ())
+                .map(|_| ())
                 .map_err(|e| eprintln!("Error when sending: {:?}", e));
 
 
@@ -359,7 +352,7 @@ fn main() {
                         .and_then(move |_| {
                             println!("Sending: {:?}", packets);
                             new_tx.clone().send_all(iter_ok(packets))
-                            .map(|v| ())
+                            .map(|_| ())
                             .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
 
                         })

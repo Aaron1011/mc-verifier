@@ -1,5 +1,5 @@
 use super::types::*;
-use packet_macro::{packets, packet};
+use packet_macro::packets;
 
 
 

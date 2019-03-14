@@ -84,7 +84,7 @@ pub fn packets(input: TokenStream) -> proc_macro::TokenStream {
             Box::new(|mut data: &[u8]| -> crate::packet::ParsedPacket {
                 let mut pkt: #name = Default::default();
                 let reader: &mut ::std::io::Read = &mut data as &mut ::std::io::Read;
-                pkt.read(reader);
+                pkt.read(reader).expect("Failed to parse packet!");
                 crate::packet::ParsedPacket {
                     boxed: Box::new(pkt.clone()),
                     any: Box::new(pkt.clone())
