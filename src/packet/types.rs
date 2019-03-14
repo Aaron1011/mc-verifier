@@ -169,8 +169,8 @@ impl Readable for VarInt {
         //let mut read: u8;
         loop {
             r.read_exact(&mut data)?;
-            let val: u8 = data[0] & 0b01111111;
-            result |= ((val as u64) << (7 * num_read));
+            let val: u8 = dbg!(data[0] & 0b01111111);
+            result |= dbg!(((val as u64) << (7 * num_read)));
 
             num_read += 1;
             if (num_read > 5) {
@@ -178,8 +178,10 @@ impl Readable for VarInt {
             }
 
             if (data[0] & 0b10000000) == 0 {
+                println!("Done reading VarInt");
                 break
             }
+            println!("Reading another byte");
         }
 
         self.val = result;
@@ -204,9 +206,9 @@ impl ByteArray {
 
 impl Readable for ByteArray {
     fn read(&mut self, r: &mut Read) -> ReadResult {
-        let len = VarInt::from_read(r)?;
-        let mut data = vec![0; len.into()];
-        r.read_exact(&mut data)?;
+        self.len.read(r)?;
+        self.data = vec![0; self.len.into()];
+        r.read_exact(&mut self.data)?;
         Ok(())
     }
 }

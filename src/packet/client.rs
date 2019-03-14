@@ -18,6 +18,12 @@ packets!{[
         pub name: String
     }
 
+    #[packet(id = 1, side = "Client", state = "Login")]
+    pub struct EncryptionResponse {
+        pub shared_secret: ByteArray,
+        pub verify_token: ByteArray
+    }   
+
 ]}
 
 /*impl Packet for Handshake {
@@ -28,13 +34,11 @@ packets!{[
 pub trait ClientHandler {
     fn on_handshake(&mut self, handshake: &Handshake);
     fn on_loginstart(&mut self, login_start: &LoginStart);
+    fn on_encryptionresponse(&mut self, response: &EncryptionResponse);
 }
 
 
-pub struct EncryptionResponse {
-    pub shared_secret: ByteArray,
-    pub verify_token: ByteArray
-}
+
 
 pub enum NextServerState {
     Status,

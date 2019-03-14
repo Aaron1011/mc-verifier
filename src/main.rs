@@ -4,7 +4,7 @@ extern crate serde;
 
 use ozelot::Server;
 
-use openssl::rsa::Rsa;
+use openssl::rsa::{Rsa, Padding};
 use openssl::pkey::Private;
 use openssl::pkey::PKey;
 use openssl::rand::rand_bytes;
@@ -99,6 +99,34 @@ impl ClientHandler for SimpleHandler {
             pub_key: ByteArray::new(self.encoded_public_key.clone().unwrap()),
             verify_token: ByteArray::new(verify_token.to_vec())
         }));
+    }
+
+    fn on_encryptionresponse(&mut self, response: &EncryptionResponse) {
+        println!("Decrypting encryption response...");
+
+        let rsa = self.public_key.as_ref().unwrap().rsa().unwrap();
+        let mut secret = vec![0; rsa.size() as usize];
+        let secret_len = rsa.private_decrypt(
+            &response.shared_secret.data,
+            &mut secret,
+            Padding::PKCS1
+        ).expect("Failed to decrypt shared secret!");
+
+        let mut verify_token = vec![0; rsa.size() as usize];
+        let verify_len = rsa.private_decrypt(
+            &response.verify_token.data,
+            &mut verify_token,
+            Padding::PKCS1
+        ).expect("Failed to decrypt verify token!");
+
+        if &verify_token[..verify_len] != self.verify_token.as_ref().unwrap() {
+            panic!("Verify token incorrect: Should be {:?} but was {:?}", &verify_token[..verify_len],
+                   self.verify_token.as_ref().unwrap());
+        }
+
+        println!("Verify token matches! Shared secret: {:?}", &secret[..secret_len]);
+
+
     }
 }
 
@@ -200,12 +228,12 @@ fn main() {
 
 
             let new_tx = tx.clone();
+            let mut handler = SimpleHandler::new();
 
             let processor = reader
                 .for_each(move |pkt| {
 
 
-                    let mut handler = SimpleHandler::new();
                     pkt.handle_client(&mut handler);
 
                     let packets: Vec<Box<Packet>> = handler.result.drain(..).collect();
