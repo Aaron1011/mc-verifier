@@ -1,9 +1,6 @@
 use std::ops::Deref;
 use std::fmt;
-use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
-use serde::de::{self, Visitor, Error, SeqAccess};
-use serde::ser::{SerializeSeq, SerializeTuple};
 
 use std::io::{Read, Write, ErrorKind};
 use std::fmt::Debug;

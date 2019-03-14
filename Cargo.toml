@@ -5,11 +5,9 @@ authors = ["Aaron Hill <aa1ronham@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-ozelot = "0.8.0"
 tokio = "0.1.16"
 byteorder = "1.3.1"
 packet_macro = { path = "packet_macro" }
-serde = {version = "1.0.89", features = ["derive"] }
 lazy_static = "1.3.0"
 bytes = "0.4.12"
 openssl = "0.10.19"

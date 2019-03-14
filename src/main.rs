@@ -1,9 +1,5 @@
 #![recursion_limit="128"]
 
-extern crate serde;
-
-use ozelot::Server;
-
 use openssl::rsa::{Rsa, Padding};
 use openssl::pkey::Private;
 use openssl::pkey::PKey;
@@ -38,13 +34,6 @@ use hyper_tls::HttpsConnector;
 use tokio::prelude::stream::SplitSink;
 
 pub mod packet;
-
-struct ClientFuture {
-    // The naming is a little weird - a 'Server'
-    // struct represents the server's view of a single
-    // client connection
-    client: Server
-}
 
 struct PacketCodec {
     state: u64,
