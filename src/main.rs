@@ -9,6 +9,7 @@ use openssl::pkey::Private;
 use openssl::pkey::PKey;
 use openssl::rand::rand_bytes;
 use openssl::sha::Sha1;
+use openssl::symm::{Cipher, Mode, Crypter};
 
 use tokio::prelude::*;
 use tokio::prelude::stream::iter_ok;
@@ -24,7 +25,7 @@ use std::borrow::BorrowMut;
 
 use std::net::SocketAddr;
 use std::any::Any;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::io::ErrorKind;
 
 use packet::*;
@@ -46,23 +47,65 @@ struct ClientFuture {
 }
 
 struct PacketCodec {
-    state: u64
+    state: u64,
+    encryption: Arc<Mutex<Option<Encryption>>>,
+    real_encryption: Option<Encryption>
 }
 
 impl PacketCodec {
-    fn new() -> PacketCodec {
-        PacketCodec { state: 0 }
+    fn new(enc: Arc<Mutex<Option<Encryption>>>) -> PacketCodec {
+        PacketCodec { state: 0, encryption: enc, real_encryption: None }
     }
+
+    fn encrypt(&mut self, packet: Box<Packet>, dst: &mut BytesMut) {
+        println!("Encrypting!");
+        let mut raw = BytesMut::with_capacity(dst.capacity());
+        self.encode_raw(packet, &mut raw);
+
+
+        let enc = self.real_encryption.as_mut().unwrap();
+
+        let mut ciphertext = vec![0; raw.len() + enc.block_size];
+
+        let mut count = enc.encrypt.update(&raw, &mut ciphertext).unwrap();
+        enc.encrypt.finalize(&mut ciphertext[count..]).unwrap();
+        ciphertext.truncate(count);
+
+        dst.extend_from_slice(&ciphertext);
+    }
+
+
+    fn encode_raw(&mut self, packet: Box<Packet>, dst: &mut BytesMut) {
+        let mut data = Vec::new();
+        packet.get_id().write(&mut data);
+        packet.write(&mut data);
+
+        let len = VarInt::new(data.len() as u64);
+
+        // Write the length of the id + data, followed
+        // by the id + data
+        let mut len_bytes: Vec<u8> = Vec::new();
+        len.write(&mut len_bytes);
+
+        dst.extend_from_slice(&len_bytes);
+        dst.extend_from_slice(&data);
+    }
+}
+
+struct Encryption {
+    encrypt: Crypter,
+    decrypt: Crypter,
+    block_size: usize
 }
 
 struct SimpleHandler {
     result: Vec<Box<Packet>>,
-    future: Option<Box<Future<Item = (), Error = std::io::Error> + Send>>,
+    crypto_future: Option<Box<Future<Item = Encryption, Error = std::io::Error> + Send>>,
     public_key: Option<PKey<Private>>,
     encoded_public_key: Option<Vec<u8>>,
     verify_token: Option<[u8; 4]>,
     username: Option<String>,
-    server_id: String
+    server_id: String,
 }
 
 impl SimpleHandler {
@@ -73,7 +116,7 @@ impl SimpleHandler {
             public_key: None,
             encoded_public_key: None,
             verify_token: None,
-            future: None,
+            crypto_future: None,
             username: None,
             server_id
         }
@@ -147,6 +190,8 @@ impl ClientHandler for SimpleHandler {
             Padding::PKCS1
         ).expect("Failed to decrypt shared secret!");
 
+        let secret_key = Arc::new((&secret[..secret_len]).to_vec());
+
         let mut verify_token = vec![0; rsa.size() as usize];
         let verify_len = rsa.private_decrypt(
             &response.verify_token.data,
@@ -161,7 +206,7 @@ impl ClientHandler for SimpleHandler {
 
         println!("Verify token matches! Shared secret: {:?}", &secret[..secret_len]);
 
-        let hash = self.server_hash(&secret[..secret_len]);
+        let hash = self.server_hash(&secret_key);
 
         // 4 is number of blocking DNS threads
         let https = HttpsConnector::new(4).unwrap();
@@ -171,19 +216,41 @@ impl ClientHandler for SimpleHandler {
 
         println!("Sending request: {:?}", uri);
 
-        self.future = Some(Box::new(client.get(uri)
-            .and_then(|res| {
+
+        self.crypto_future = Some(Box::new(client.get(uri)
+            .and_then(move |res| {
+
+                let secret_key = secret_key.clone();
                 println!("Got response: {:?}", res);
 
                 res.into_body().fold(vec![], |mut acc, chunk| {
                     acc.extend_from_slice(&chunk);
                     tokio::prelude::future::ok::<Vec<u8>, hyper::error::Error>(acc)
                 }).map(|v| String::from_utf8(v).unwrap())
-                .map(|data| {
+                .map(move |data| {
                     println!("Got body: {:?}", data);
+
+                    let mut encrypt = Crypter::new(
+                        Cipher::aes_128_cfb8(),
+                        Mode::Encrypt,
+                        &secret_key,
+                        Some(&secret_key) // IV and secret are the same in Minecraft
+                    ).unwrap();
+
+                    let mut decrypt = Crypter::new(
+                        Cipher::aes_128_cfb8(),
+                        Mode::Decrypt,
+                        &secret_key,
+                        Some(&secret_key)
+                    ).unwrap();
+                    Encryption { encrypt, decrypt, block_size: Cipher::aes_128_cfb8().block_size() }
                 })
 
             }).map_err(convert_hyper_err)));
+
+        self.result.push(Box::new(LoginDisconnect {
+            reason: "{\"text\": \"Successfully authenticated!\"}".to_string()
+        }));
     }
 }
 
@@ -192,20 +259,17 @@ impl Encoder for PacketCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, packet: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let mut data = Vec::new();
-        packet.get_id().write(&mut data);
-        packet.write(&mut data);
-
-        let len = VarInt::new(data.len() as u64);
-
-        // Write the length of the id + data, followed
-        // by the id + data
-        let mut len_bytes: Vec<u8> = Vec::new();
-        len.write(&mut len_bytes);
-
-        dst.extend_from_slice(&len_bytes);
-        dst.extend_from_slice(&data);
-
+        if self.real_encryption.is_some() {
+            self.encrypt(packet, dst);
+        } else {
+            let enc = self.encryption.lock().unwrap().take();
+            if enc.is_some() {
+                self.real_encryption = enc;
+                self.encrypt(packet, dst)
+            } else {
+                self.encode_raw(packet, dst)
+            }
+        }
         Ok(())
     }
 }
@@ -271,7 +335,9 @@ fn main() {
     let tcp_server = listener.incoming()
         .map_err(|e| eprintln!("accept failed = {:?}", e))
         .for_each(move |socket| {
-            let framed = Framed::new(socket, PacketCodec::new());
+            let mut crypto: Arc<Mutex<Option<Encryption>>> = Arc::new(Mutex::new(None));
+            let mut codec = PacketCodec::new(crypto.clone());
+            let framed = Framed::new(socket, codec);
             let (writer, reader) = framed.split();
             let (tx, rx) = channel(10);
 
@@ -284,7 +350,6 @@ fn main() {
             tokio::spawn(sink);
 
 
-            let new_tx = tx.clone();
             let mut handler = SimpleHandler::new("MyServer".to_string());
 
             let processor = reader
@@ -293,18 +358,29 @@ fn main() {
                     pkt.handle_client(&mut handler);
 
                     let packets: Vec<Box<Packet>> = handler.result.drain(..).collect();
-                    let future_opt = handler.future.take();
+                    let crypto_future_opt = handler.crypto_future.take();
+                    let crypto = crypto.clone();
 
-                    new_tx.clone().send_all(iter_ok(packets))
-                        .map(|v| ())
-                        .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
-                        .and_then(|_| {
-                            if let Some(future) = future_opt {
-                                future
-                            } else {
+
+                    let new_tx = tx.clone();
+
+                    crypto_future_opt
+                        .map(move |future| Box::new(future.map(move |c| *crypto.lock().unwrap() = Some(c))) as Box<Future<Item = (), Error = std::io::Error> + Send>)
+                        .unwrap_or_else(|| Box::new(tokio::prelude::future::ok(())))
+                        .and_then(move |_| {
+                            println!("Sending: {:?}", packets);
+                            new_tx.clone().send_all(iter_ok(packets))
+                            .map(|v| ())
+                            .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
+
+                        })
+
+                        /*.and_then(move |_| {
+                            if let Some(future) = crypto_future_opt {
+                                                            } else {
                                 Box::new(tokio::prelude::future::ok(()))
                             }
-                        })
+                        })*/
 
                     /*writer.send_all(iter_ok::<_, std::io::Error>(packets)).map(|_v| ())
                         .map_err(|err| {
