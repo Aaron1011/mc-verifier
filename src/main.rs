@@ -17,6 +17,8 @@ use bytes::BytesMut;
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::rc::Rc;
+use std::cell::RefCell;
 use std::io::ErrorKind;
 
 use packet::*;
@@ -36,12 +38,12 @@ pub mod packet;
 
 struct PacketCodec {
     state: u64,
-    encryption: Arc<Mutex<Option<Encryption>>>,
+    encryption: Rc<RefCell<Option<Encryption>>>,
     real_encryption: Option<Encryption>
 }
 
 impl PacketCodec {
-    fn new(enc: Arc<Mutex<Option<Encryption>>>) -> PacketCodec {
+    fn new(enc: Rc<RefCell<Option<Encryption>>>) -> PacketCodec {
         PacketCodec { state: 0, encryption: enc, real_encryption: None }
     }
 
@@ -250,7 +252,7 @@ impl Encoder for PacketCodec {
         if self.real_encryption.is_some() {
             self.encrypt(packet, dst);
         } else {
-            let enc = self.encryption.lock().unwrap().take();
+            let enc = self.encryption.borrow_mut().take();
             if enc.is_some() {
                 self.real_encryption = enc;
                 self.encrypt(packet, dst)
@@ -316,6 +318,7 @@ impl Decoder for PacketCodec {
 //}
 
 fn main() {
+    env_logger::init();
     //let a: crate::packet::Packet = panic!();
     let addr = "127.0.0.1:25567".parse::<SocketAddr>().unwrap();
     let listener = TcpListener::bind(&addr).expect("Unable to bind TCP listener!");
@@ -323,64 +326,72 @@ fn main() {
     let tcp_server = listener.incoming()
         .map_err(|e| eprintln!("accept failed = {:?}", e))
         .for_each(move |socket| {
-            let crypto: Arc<Mutex<Option<Encryption>>> = Arc::new(Mutex::new(None));
-            let codec = PacketCodec::new(crypto.clone());
-            let framed = Framed::new(socket, codec);
-            let (writer, reader) = framed.split();
-            let (tx, rx) = channel(10);
 
-            let sink = rx.map_err(|e| std::io::Error::new(ErrorKind::Other, e)).forward(writer)
-                .map(|_| ())
-                .map_err(|e| eprintln!("Error when sending: {:?}", e));
+            tokio::spawn_lazy(|| {
 
+                println!("Spawning!");
 
-            
-            tokio::spawn(sink);
+                let crypto: Rc<RefCell<Option<Encryption>>> = Rc::new(RefCell::new(None));
+                let codec = PacketCodec::new(crypto.clone());
+                let framed = Framed::new(socket, codec);
+                let (writer, reader) = framed.split();
+                let (tx, rx) = channel(10);
 
 
-            let mut handler = SimpleHandler::new("MyServer".to_string());
-
-            let processor = reader
-                .for_each(move |pkt| {
-
-                    pkt.handle_client(&mut handler);
-
-                    let packets: Vec<Box<Packet>> = handler.result.drain(..).collect();
-                    let crypto_future_opt = handler.crypto_future.take();
-                    let crypto = crypto.clone();
+                
+                let write_packets = rx.map_err(|e| std::io::Error::new(ErrorKind::Other, e)).forward(writer)
+                        .map(|_| ())
+                        .map_err(|e| eprintln!("Error when sending: {:?}", e));
 
 
-                    let new_tx = tx.clone();
+                let mut handler = SimpleHandler::new("MyServer".to_string());
 
-                    crypto_future_opt
-                        .map(move |future| Box::new(future.map(move |c| *crypto.lock().unwrap() = Some(c))) as Box<Future<Item = (), Error = std::io::Error> + Send>)
-                        .unwrap_or_else(|| Box::new(tokio::prelude::future::ok(())))
-                        .and_then(move |_| {
-                            println!("Sending: {:?}", packets);
-                            new_tx.clone().send_all(iter_ok(packets))
-                            .map(|_| ())
-                            .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
+                let processor = reader
+                    .for_each(move |pkt| {
 
-                        })
+                        pkt.handle_client(&mut handler);
 
-                        /*.and_then(move |_| {
-                            if let Some(future) = crypto_future_opt {
-                                                            } else {
-                                Box::new(tokio::prelude::future::ok(()))
-                            }
-                        })*/
+                        let packets: Vec<Box<Packet>> = handler.result.drain(..).collect();
+                        let crypto_future_opt = handler.crypto_future.take();
+                        let crypto = crypto.clone();
 
-                    /*writer.send_all(iter_ok::<_, std::io::Error>(packets)).map(|_v| ())
-                        .map_err(|err| {
-                            eprintln!("Error: {:?}", err);
-                            err
-                        })*/
-                })
-                .map_err(|err| {
-                    eprintln!("IO Error: {:?}", err);
-                });
 
-            tokio::spawn(processor)
+                        let new_tx = tx.clone();
+
+                        crypto_future_opt
+                            .map(move |future| Box::new(future.map(move |c| *crypto.borrow_mut() = Some(c))) as Box<Future<Item = (), Error = std::io::Error>>)
+                            .unwrap_or_else(|| Box::new(tokio::prelude::future::ok(())))
+                            .and_then(move |_| {
+                                println!("Sending: {:?}", packets);
+                                new_tx.clone().send_all(iter_ok(packets))
+                                .map(|_| ())
+                                .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
+
+                            })
+
+                            /*.and_then(move |_| {
+                                if let Some(future) = crypto_future_opt {
+                                                                } else {
+                                    Box::new(tokio::prelude::future::ok(()))
+                                }
+                            })*/
+
+                        /*writer.send_all(iter_ok::<_, std::io::Error>(packets)).map(|_v| ())
+                            .map_err(|err| {
+                                eprintln!("Error: {:?}", err);
+                                err
+                            })*/
+                    })
+                    .map_err(|err| {
+                        eprintln!("IO Error: {:?}", err);
+                    });
+
+                let final_stream = processor.select(write_packets).map(|_v| ()).map_err(|err| eprintln!("Got error!"));
+
+                println!("Spawned!");
+
+                return Box::new(final_stream)
+            })
         });
 
 

@@ -5,7 +5,7 @@ authors = ["Aaron Hill <aa1ronham@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-tokio = "0.1.16"
+tokio = { path = "../tokio" }  #"0.1.16"
 byteorder = "1.3.1"
 packet_macro = { path = "packet_macro" }
 lazy_static = "1.3.0"
@@ -14,3 +14,4 @@ openssl = "0.10.19"
 hex = "0.3.2"
 hyper = "0.12.25"
 hyper-tls = "0.3.1"
+env_logger = "0.6.1"
