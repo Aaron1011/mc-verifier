@@ -26,6 +26,12 @@ use packet::server::*;
 use hyper::Client;
 use hyper_tls::HttpsConnector;
 
+use std::alloc::System;
+
+#[global_allocator]
+static A: System = System;
+
+
 pub mod packet;
 
 struct PacketCodec {
@@ -172,7 +178,7 @@ impl ClientHandler for SimpleHandler {
             Padding::PKCS1
         ).expect("Failed to decrypt shared secret!");
 
-        let secret_key = Arc::new((&secret[..secret_len]).to_vec());
+        let secret_key = (&secret[..secret_len]).to_vec();
 
         let mut verify_token = vec![0; rsa.size() as usize];
         let verify_len = rsa.private_decrypt(
