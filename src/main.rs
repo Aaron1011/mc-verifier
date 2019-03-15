@@ -353,7 +353,6 @@ fn main() {
                 let (writer, reader) = framed.split();
                 let (tx, rx) = channel(10);
 
-
                 
                 let write_packets = rx.map_err(|e| std::io::Error::new(ErrorKind::Other, e)).forward(writer)
                         .map(|_| ())
@@ -378,33 +377,17 @@ fn main() {
                             .map(move |future| Box::new(future.map(move |c| crypto.enable(c))) as Box<Future<Item = (), Error = std::io::Error>>)
                             .unwrap_or_else(|| Box::new(tokio::prelude::future::ok(())))
                             .and_then(move |_| {
-                                println!("Sending: {:?}", packets);
                                 new_tx.clone().send_all(iter_ok(packets))
                                 .map(|_| ())
                                 .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
 
                             })
-
-                            /*.and_then(move |_| {
-                                if let Some(future) = crypto_future_opt {
-                                                                } else {
-                                    Box::new(tokio::prelude::future::ok(()))
-                                }
-                            })*/
-
-                        /*writer.send_all(iter_ok::<_, std::io::Error>(packets)).map(|_v| ())
-                            .map_err(|err| {
-                                eprintln!("Error: {:?}", err);
-                                err
-                            })*/
                     })
                     .map_err(|err| {
                         eprintln!("IO Error: {:?}", err);
                     });
 
                 let final_stream = processor.select(write_packets).map(|_v| ()).map_err(|err| eprintln!("Got error!"));
-
-                println!("Spawned!");
 
                 return Box::new(final_stream)
             })
