@@ -16,7 +16,6 @@ use bytes::BytesMut;
 
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::io::ErrorKind;
@@ -42,9 +41,26 @@ struct PacketCodec {
     real_encryption: Option<Encryption>
 }
 
+#[derive(Clone)]
+struct EncryptionSettings {
+    inner: Rc<RefCell<Option<Encryption>>>
+}
+
+impl EncryptionSettings {
+    fn enable(&self, encryption: Encryption) {
+        *self.inner.borrow_mut() = Some(encryption);
+    }
+}
+
 impl PacketCodec {
-    fn new(enc: Rc<RefCell<Option<Encryption>>>) -> PacketCodec {
-        PacketCodec { state: 0, encryption: enc, real_encryption: None }
+    fn new() -> PacketCodec {
+        PacketCodec { state: 0, encryption: Rc::new(RefCell::new(None)), real_encryption: None }
+    }
+
+    fn get_encryption_settings(&self) -> EncryptionSettings {
+        EncryptionSettings {
+            inner: self.encryption.clone()
+        }
     }
 
     fn encrypt(&mut self, packet: Box<Packet>, dst: &mut BytesMut) {
@@ -331,8 +347,8 @@ fn main() {
 
                 println!("Spawning!");
 
-                let crypto: Rc<RefCell<Option<Encryption>>> = Rc::new(RefCell::new(None));
-                let codec = PacketCodec::new(crypto.clone());
+                let codec = PacketCodec::new();
+                let crypto = codec.get_encryption_settings();
                 let framed = Framed::new(socket, codec);
                 let (writer, reader) = framed.split();
                 let (tx, rx) = channel(10);
@@ -359,7 +375,7 @@ fn main() {
                         let new_tx = tx.clone();
 
                         crypto_future_opt
-                            .map(move |future| Box::new(future.map(move |c| *crypto.borrow_mut() = Some(c))) as Box<Future<Item = (), Error = std::io::Error>>)
+                            .map(move |future| Box::new(future.map(move |c| crypto.enable(c))) as Box<Future<Item = (), Error = std::io::Error>>)
                             .unwrap_or_else(|| Box::new(tokio::prelude::future::ok(())))
                             .and_then(move |_| {
                                 println!("Sending: {:?}", packets);
