@@ -1,5 +1,6 @@
 use super::types::*;
 use packet_macro::packets;
+use std::any::Any;
 
 
 
@@ -32,9 +33,9 @@ packets!{[
 
 
 pub trait ClientHandler {
-    fn on_handshake(&mut self, handshake: &Handshake);
-    fn on_loginstart(&mut self, login_start: &LoginStart);
-    fn on_encryptionresponse(&mut self, response: &EncryptionResponse);
+    fn on_handshake(&mut self, handshake: &Handshake) -> Box<Any>;
+    fn on_loginstart(&mut self, login_start: &LoginStart) -> Box<Any>;
+    fn on_encryptionresponse(&mut self, response: &EncryptionResponse) -> Box<Any>;
 }
 
 

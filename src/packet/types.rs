@@ -339,9 +339,9 @@ pub trait Packet: Readable + Writeable + Debug + Send {
 
     fn get_id(&self) -> VarInt;
 
-    fn handle_client(&self, handler: &mut crate::packet::ClientHandler);
+    fn handle_client(&self, handler: &mut crate::packet::ClientHandler) -> Box<Any>;
 
-    fn handle_server(&self, handler: &mut crate::packet::ServerHandler);
+    fn handle_server(&self, handler: &mut crate::packet::ServerHandler) -> Box<Any>;
 
 
     // This is actually serialized as a VarInt,

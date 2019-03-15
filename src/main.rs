@@ -29,6 +29,7 @@ use hyper::Client;
 use hyper_tls::HttpsConnector;
 
 use std::alloc::System;
+use std::any::Any;
 
 #[global_allocator]
 static A: System = System;
@@ -121,6 +122,16 @@ struct SimpleHandler {
     packet_tx: Sender<Box<Packet>>
 }
 
+struct SimpleHandlerRet {
+    fut: Box<Future<Item = (), Error = std::io::Error>>
+}
+
+impl SimpleHandlerRet {
+    fn new<T: Future<Item = (), Error = std::io::Error> + 'static>(f: T) -> SimpleHandlerRet {
+        SimpleHandlerRet { fut: Box::new(f) }
+    }
+}
+
 impl SimpleHandler {
 
     fn new(server_id: String, encryption: EncryptionSettings, packet_tx: Sender<Box<Packet>>) -> SimpleHandler {
@@ -136,14 +147,12 @@ impl SimpleHandler {
         }
     }
 
-    fn send<T: Packet + 'static>(&mut self, packet: T) {
+    fn send<T: Packet + 'static>(&mut self, packet: T) -> Box<Any> {
         let tx = self.packet_tx.clone();
-        let ret_future = std::mem::replace(&mut self.ret_future, Box::new(future::ok(())));
-        self.ret_future = Box::new(ret_future.and_then(|_| {
-            tx.send(Box::new(packet))
+        Box::new(SimpleHandlerRet::new(tx.send(Box::new(packet))
                 .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
-                .map(|_| ())
-        }));
+                .map(|_| ()))
+        ) as Box<Any>
     }
 
     fn gen_keypair(&mut self) {
@@ -181,11 +190,12 @@ fn convert_hyper_err(err: hyper::error::Error) -> std::io::Error {
 
 impl ClientHandler for SimpleHandler {
 
-    fn on_handshake(&mut self, handshake: &Handshake) {
+    fn on_handshake(&mut self, handshake: &Handshake) -> Box<Any> {
         println!("Handshake handler: {:?}", handshake);
+        Box::new(SimpleHandlerRet::new(future::ok::<(), std::io::Error>(())))
     }
 
-    fn on_loginstart(&mut self, login_start: &LoginStart) {
+    fn on_loginstart(&mut self, login_start: &LoginStart) -> Box<Any> {
         println!("LoginStart handler: {:?}", login_start);
 
         self.username = Some(login_start.name.clone());
@@ -200,10 +210,10 @@ impl ClientHandler for SimpleHandler {
             server_id: self.server_id.clone(),
             pub_key: ByteArray::new(self.encoded_public_key.clone().unwrap()),
             verify_token: ByteArray::new(verify_token.to_vec())
-        });
+        })
     }
 
-    fn on_encryptionresponse(&mut self, response: &EncryptionResponse) {
+    fn on_encryptionresponse(&mut self, response: &EncryptionResponse) -> Box<Any> {
         println!("Decrypting encryption response...");
 
         let rsa = self.public_key.as_ref().unwrap().rsa().unwrap();
@@ -244,7 +254,7 @@ impl ClientHandler for SimpleHandler {
 
         let tx = self.packet_tx.clone();
 
-        self.ret_future = Box::new(client.get(uri)
+        Box::new(SimpleHandlerRet::new(client.get(uri)
             .and_then(move |res| {
 
                 let secret_key = secret_key.clone();
@@ -287,7 +297,7 @@ impl ClientHandler for SimpleHandler {
                 }))
                 .map(|_| ())
                 .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
-            }))
+            })))
     }
 }
 
@@ -395,8 +405,9 @@ fn main() {
                 let processor = reader
                     .for_each(move |pkt| {
 
-                        pkt.handle_client(&mut handler);
-                        std::mem::replace(&mut handler.ret_future, Box::new(tokio::prelude::future::ok(())))
+                        let fut: Box<Any> = pkt.handle_client(&mut handler);
+                        let ret: Box<SimpleHandlerRet> = fut.downcast().unwrap();
+                        ret.fut
                     })
                     .map_err(|err| {
                         eprintln!("IO Error: {:?}", err);
