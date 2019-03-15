@@ -397,22 +397,6 @@ fn main() {
 
                         pkt.handle_client(&mut handler);
                         std::mem::replace(&mut handler.ret_future, Box::new(tokio::prelude::future::ok(())))
-
-                        /*let packets: Vec<Box<Packet>> = handler.result.drain(..).collect();
-                        let crypto_future_opt = handler.crypto_future.take();
-                        let crypto = crypto.clone();
-
-
-                        let new_tx = tx.clone();
-
-                        crypto_future_opt
-                            .unwrap_or_else(|| Box::new(tokio::prelude::future::ok(())))
-                            .and_then(move |_| {
-                                new_tx.clone().send_all(iter_ok(packets))
-                                .map(|_| ())
-                                .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
-
-                            })*/
                     })
                     .map_err(|err| {
                         eprintln!("IO Error: {:?}", err);
