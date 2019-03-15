@@ -111,8 +111,6 @@ struct Encryption {
 }
 
 struct SimpleHandler {
-    //result: Vec<Box<Packet>>,
-    ret_future: Box<Future<Item = (), Error = std::io::Error>>,
     public_key: Option<PKey<Private>>,
     encoded_public_key: Option<Vec<u8>>,
     verify_token: Option<[u8; 4]>,
@@ -139,7 +137,6 @@ impl SimpleHandler {
             public_key: None,
             encoded_public_key: None,
             verify_token: None,
-            ret_future: Box::new(tokio::prelude::future::ok(())),
             username: None,
             server_id,
             encryption,
@@ -413,7 +410,7 @@ fn main() {
                         eprintln!("IO Error: {:?}", err);
                     });
 
-                let final_stream = processor.select(write_packets).map(|_v| ()).map_err(|err| eprintln!("Got error!"));
+                let final_stream = processor.select(write_packets).map(|_v| ()).map_err(|_| eprintln!("Got error!"));
 
                 return Box::new(final_stream)
             })
