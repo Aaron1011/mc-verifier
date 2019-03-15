@@ -10,6 +10,7 @@ use openssl::symm::{Cipher, Mode, Crypter};
 use tokio::prelude::*;
 use tokio::prelude::stream::iter_ok;
 use tokio::sync::mpsc::channel;
+use tokio::sync::mpsc::Sender;
 use tokio::net::TcpListener;
 use tokio::codec::{Decoder, Encoder, Framed};
 use bytes::BytesMut;
@@ -48,7 +49,11 @@ struct EncryptionSettings {
 
 impl EncryptionSettings {
     fn enable(&self, encryption: Encryption) {
-        *self.inner.borrow_mut() = Some(encryption);
+        let mut ref_mut = self.inner.borrow_mut();
+        if ref_mut.is_some() {
+            panic!("Already enabled encrytion!");
+        }
+        *ref_mut = Some(encryption);
     }
 }
 
@@ -105,27 +110,40 @@ struct Encryption {
 }
 
 struct SimpleHandler {
-    result: Vec<Box<Packet>>,
-    crypto_future: Option<Box<Future<Item = Encryption, Error = std::io::Error> + Send>>,
+    //result: Vec<Box<Packet>>,
+    ret_future: Box<Future<Item = (), Error = std::io::Error>>,
     public_key: Option<PKey<Private>>,
     encoded_public_key: Option<Vec<u8>>,
     verify_token: Option<[u8; 4]>,
     username: Option<String>,
     server_id: String,
+    encryption: EncryptionSettings,
+    packet_tx: Sender<Box<Packet>>
 }
 
 impl SimpleHandler {
 
-    fn new(server_id: String) -> SimpleHandler {
+    fn new(server_id: String, encryption: EncryptionSettings, packet_tx: Sender<Box<Packet>>) -> SimpleHandler {
         SimpleHandler {
-            result: Vec::new(),
             public_key: None,
             encoded_public_key: None,
             verify_token: None,
-            crypto_future: None,
+            ret_future: Box::new(tokio::prelude::future::ok(())),
             username: None,
-            server_id
+            server_id,
+            encryption,
+            packet_tx
         }
+    }
+
+    fn send<T: Packet + 'static>(&mut self, packet: T) {
+        let tx = self.packet_tx.clone();
+        let ret_future = std::mem::replace(&mut self.ret_future, Box::new(future::ok(())));
+        self.ret_future = Box::new(ret_future.and_then(|_| {
+            tx.send(Box::new(packet))
+                .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
+                .map(|_| ())
+        }));
     }
 
     fn gen_keypair(&mut self) {
@@ -178,11 +196,11 @@ impl ClientHandler for SimpleHandler {
         rand_bytes(&mut verify_token).expect("Failed to generate verify token");
         self.verify_token = Some(verify_token);
 
-        self.result.push(Box::new(EncryptionRequest {
+        self.send(EncryptionRequest {
             server_id: self.server_id.clone(),
             pub_key: ByteArray::new(self.encoded_public_key.clone().unwrap()),
             verify_token: ByteArray::new(verify_token.to_vec())
-        }));
+        });
     }
 
     fn on_encryptionresponse(&mut self, response: &EncryptionResponse) {
@@ -222,8 +240,11 @@ impl ClientHandler for SimpleHandler {
 
         println!("Sending request: {:?}", uri);
 
+        let enc = self.encryption.clone();
 
-        self.crypto_future = Some(Box::new(client.get(uri)
+        let tx = self.packet_tx.clone();
+
+        self.ret_future = Box::new(client.get(uri)
             .and_then(move |res| {
 
                 let secret_key = secret_key.clone();
@@ -249,14 +270,24 @@ impl ClientHandler for SimpleHandler {
                         &secret_key,
                         Some(&secret_key)
                     ).unwrap();
-                    Encryption { encrypt, decrypt, block_size: Cipher::aes_128_cfb8().block_size() }
+                    enc.enable(
+                        Encryption { 
+                            encrypt,
+                            decrypt, 
+                            block_size: Cipher::aes_128_cfb8().block_size() 
+                        }
+                    );
                 })
 
-            }).map_err(convert_hyper_err)));
-
-        self.result.push(Box::new(LoginDisconnect {
-            reason: "{\"text\": \"Successfully authenticated!\"}".to_string()
-        }));
+            })
+            .map_err(convert_hyper_err)
+            .and_then(|_| {
+                tx.send(Box::new(LoginDisconnect {
+                    reason: "{\"text\": \"Successfully authenticated!\"}".to_string()
+                }))
+                .map(|_| ())
+                .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
+            }))
     }
 }
 
@@ -359,14 +390,15 @@ fn main() {
                         .map_err(|e| eprintln!("Error when sending: {:?}", e));
 
 
-                let mut handler = SimpleHandler::new("MyServer".to_string());
+                let mut handler = SimpleHandler::new("MyServer".to_string(), crypto.clone(), tx.clone());
 
                 let processor = reader
                     .for_each(move |pkt| {
 
                         pkt.handle_client(&mut handler);
+                        std::mem::replace(&mut handler.ret_future, Box::new(tokio::prelude::future::ok(())))
 
-                        let packets: Vec<Box<Packet>> = handler.result.drain(..).collect();
+                        /*let packets: Vec<Box<Packet>> = handler.result.drain(..).collect();
                         let crypto_future_opt = handler.crypto_future.take();
                         let crypto = crypto.clone();
 
@@ -374,14 +406,13 @@ fn main() {
                         let new_tx = tx.clone();
 
                         crypto_future_opt
-                            .map(move |future| Box::new(future.map(move |c| crypto.enable(c))) as Box<Future<Item = (), Error = std::io::Error>>)
                             .unwrap_or_else(|| Box::new(tokio::prelude::future::ok(())))
                             .and_then(move |_| {
                                 new_tx.clone().send_all(iter_ok(packets))
                                 .map(|_| ())
                                 .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
 
-                            })
+                            })*/
                     })
                     .map_err(|err| {
                         eprintln!("IO Error: {:?}", err);
