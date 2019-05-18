@@ -14,6 +14,8 @@ use tokio::net::TcpListener;
 use tokio::codec::{Decoder, Encoder, Framed};
 use bytes::BytesMut;
 
+use num_bigint::BigInt;
+
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -126,15 +128,18 @@ impl SimpleHandler {
         sha.update(self.encoded_public_key.as_ref().unwrap());
         let hash = sha.finish();
 
+        let int = BigInt::from_signed_bytes_be(&hash);
+        int.to_str_radix(16)
+
         // Weird Minecraft-specific encoding: see https://wiki.vg/Protocol_Encryption
 
-        let mut encoded = String::new();
+        /*let mut encoded = String::new();
         if hash[0] & 0x80 != 0 {
-            encoded.push('-'); // The hash is 'negative'
+            //encoded.push('-'); // The hash is 'negative'
         }
 
         encoded += &hex::encode(hash);
-        encoded
+        encoded*/
     }
 
 }
@@ -172,11 +177,14 @@ impl ClientHandler for SimpleHandler {
 
         let rsa = self.public_key.as_ref().unwrap().rsa().unwrap();
         let mut secret = vec![0; rsa.size() as usize];
-        let secret_len = rsa.private_decrypt(
+        let mut secret_len = rsa.private_decrypt(
             &response.shared_secret.data,
             &mut secret,
             Padding::PKCS1
         ).expect("Failed to decrypt shared secret!");
+
+        println!("Changing secret len {:?}", secret_len);
+        secret_len = 16;
 
         let secret_key = (&secret[..secret_len]).to_vec();
 
@@ -193,6 +201,7 @@ impl ClientHandler for SimpleHandler {
         }
 
         println!("Verify token matches! Shared secret: {:?}", &secret[..secret_len]);
+        println!("Secret key: {:?}", secret_key);
 
         let hash = self.server_hash(&secret_key);
 
@@ -338,7 +347,7 @@ fn main() {
             tokio::spawn(sink);
 
 
-            let mut handler = SimpleHandler::new("MyServer".to_string());
+            let mut handler = SimpleHandler::new("".to_string());
 
             let processor = reader
                 .for_each(move |pkt| {
