@@ -128,20 +128,11 @@ impl SimpleHandler {
         sha.update(self.encoded_public_key.as_ref().unwrap());
         let hash = sha.finish();
 
-        let int = BigInt::from_signed_bytes_be(&hash);
-        int.to_str_radix(16)
 
         // Weird Minecraft-specific encoding: see https://wiki.vg/Protocol_Encryption
-
-        /*let mut encoded = String::new();
-        if hash[0] & 0x80 != 0 {
-            //encoded.push('-'); // The hash is 'negative'
-        }
-
-        encoded += &hex::encode(hash);
-        encoded*/
+        let int = BigInt::from_signed_bytes_be(&hash);
+        int.to_str_radix(16)
     }
-
 }
 
 fn convert_hyper_err(err: hyper::error::Error) -> std::io::Error {
