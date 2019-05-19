@@ -114,7 +114,7 @@ impl SimpleHandler {
 
     fn gen_keypair(&mut self) {
         // Based on https://gist.github.com/rust-play/6509bead4c6e13345f6535faf2db06bf
-   
+
         let private_key = Rsa::generate(1024).expect("Failed to make private key"); // Minecraft always uses 1024-bit keys
         let public_key = PKey::from_rsa(private_key).expect("Failed to make public key");
         self.encoded_public_key = Some(public_key.public_key_to_der().expect("Failed to DER-encode"));
@@ -334,7 +334,7 @@ fn main() {
                 .map_err(|e| eprintln!("Error when sending: {:?}", e));
 
 
-            
+
             tokio::spawn(sink);
 
 
@@ -362,19 +362,6 @@ fn main() {
                             .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
 
                         })
-
-                        /*.and_then(move |_| {
-                            if let Some(future) = crypto_future_opt {
-                                                            } else {
-                                Box::new(tokio::prelude::future::ok(()))
-                            }
-                        })*/
-
-                    /*writer.send_all(iter_ok::<_, std::io::Error>(packets)).map(|_v| ())
-                        .map_err(|err| {
-                            eprintln!("Error: {:?}", err);
-                            err
-                        })*/
                 })
                 .map_err(|err| {
                     eprintln!("IO Error: {:?}", err);
