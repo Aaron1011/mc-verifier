@@ -189,7 +189,10 @@ fn main() {
 
     let addr = "127.0.0.1:25565".parse::<SocketAddr>().unwrap();
     println!("Running server on {:?}", addr);
-    tokio::run(server_future(addr));
+    tokio::run(server_future(addr, |addr| {
+        println!("Client {:?} disconnected, stopping server", addr);
+        true
+    }));
     //ServeoTunneler::new().open(("localhost", 25567), ("localhost", 4000)).unwrap();
     //ServeoTunneler::new().open(("localhost", 25567), ("testing.mc.aaron1011.pw", 25565)).unwrap();
 }

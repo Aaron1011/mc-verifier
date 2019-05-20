@@ -304,13 +304,17 @@ impl Decoder for PacketCodec {
     }
 }
 
-pub fn server_future(addr: SocketAddr) -> impl Future<Item = (), Error = ()> {
+pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: SocketAddr, on_disconnect: F) -> impl Future<Item = (), Error = ()> {
     //let a: crate::packet::Packet = panic!();
     let listener = TcpListener::bind(&addr).expect("Unable to bind TCP listener!");
+    let on_disconnect = Arc::new(on_disconnect);
+
+    let (stop_server, server_done) = channel::<()>(1);
 
     let tcp_server = listener.incoming()
         .map_err(|e| eprintln!("accept failed = {:?}", e))
         .for_each(move |socket| {
+            let socket_addr = socket.peer_addr().unwrap();
             let crypto: Arc<Mutex<Option<Encryption>>> = Arc::new(Mutex::new(None));
             let codec = PacketCodec::new(crypto.clone());
             let framed = Framed::new(socket, codec);
@@ -355,8 +359,19 @@ pub fn server_future(addr: SocketAddr) -> impl Future<Item = (), Error = ()> {
                     eprintln!("IO Error: {:?}", err);
                 });
 
-            tokio::spawn(processor.select(sink).map(|_| ()).map_err(|_| ()))
+            let stop_server = stop_server.clone();
+            let on_disconnect = on_disconnect.clone();
+
+            tokio::spawn(processor.select(sink).map(|_| ()).map_err(|(err, _)| err).then(move |_| {
+                println!("Done: {:?}", socket_addr);
+                if on_disconnect(socket_addr) {
+                    Box::new(stop_server.send(()).map(|_| ()).map_err(|_| ())) as Box<Future<Item = (), Error = ()> + Send>
+                } else {
+                    Box::new(future::ok(())) as Box<Future<Item = (), Error = ()> + Send>
+                }
+            }))
         });
 
-    tcp_server
+    tcp_server.select(server_done.into_future().map(|_| ()).map_err(|_| ()))
+        .map(|_| ()).map_err(|e| ())
 }
