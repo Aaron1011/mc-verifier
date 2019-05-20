@@ -337,6 +337,7 @@ pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: So
 
 
             let mut handler = SimpleHandler::new("".to_string());
+            //reader.shutdown();
 
             let processor = reader
                 .for_each(move |pkt| {
@@ -366,8 +367,10 @@ pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: So
                                 .then(move |_| {
                                     if should_shutdown && on_disconnect(socket_addr) {
                                         println!("Stopping for real!");
-                                        Box::new(stop_server.send(()).map(|_| ()).map_err(|e| std::io::Error::new(ErrorKind::Other, e)))
-                                            as Box<Future<Item = (), Error = std::io::Error> + Send>
+                                        let res = Box::new(stop_server.send(())
+                                            .then(|_|tokio::prelude::future::err(std::io::Error::new(std::io::ErrorKind::Other, "Manual stop"))))
+                                            as Box<Future<Item = (), Error = std::io::Error> + Send>;
+                                        res
                                     } else {
                                         Box::new(future::ok(())) as Box<Future<Item = (), Error = std::io::Error> + Send>
                                     }
