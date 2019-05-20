@@ -333,7 +333,7 @@ pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: So
             let on_disconnect_2 = on_disconnect.clone();
             let stop_server_2 = stop_server.clone();
 
-            //tokio::spawn(sink);
+            tokio::spawn(sink);
 
 
             let mut handler = SimpleHandler::new("".to_string());
@@ -386,7 +386,7 @@ pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: So
             let stop_server = stop_server.clone();
             //let on_disconnect = on_disconnect.clone();
 
-            tokio::spawn(processor.select(sink).map(|_| ()).map_err(|(err, _)| err).then(move |_| {
+            tokio::spawn(processor/*.select(sink).map(|_| ()).map_err(|(err, _)| err)*/.then(move |_| {
                 let on_disconnect = on_disconnect_2.clone();
                 println!("Done: {:?}", socket_addr);
                 if on_disconnect(socket_addr) {
