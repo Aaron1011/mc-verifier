@@ -323,7 +323,7 @@ pub fn server_future(addr: SocketAddr) -> impl Future<Item = (), Error = ()> {
 
 
 
-            tokio::spawn(sink);
+            //tokio::spawn(sink);
 
 
             let mut handler = SimpleHandler::new("".to_string());
@@ -355,7 +355,7 @@ pub fn server_future(addr: SocketAddr) -> impl Future<Item = (), Error = ()> {
                     eprintln!("IO Error: {:?}", err);
                 });
 
-            tokio::spawn(processor)
+            tokio::spawn(processor.select(sink).map(|_| ()).map_err(|_| ()))
         });
 
     tcp_server
