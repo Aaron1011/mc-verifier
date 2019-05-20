@@ -92,6 +92,7 @@ struct SimpleHandler {
     verify_token: Option<[u8; 4]>,
     username: Option<String>,
     server_id: String,
+    should_disconnect: bool
 }
 
 impl SimpleHandler {
@@ -104,7 +105,8 @@ impl SimpleHandler {
             verify_token: None,
             crypto_future: None,
             username: None,
-            server_id
+            server_id,
+            should_disconnect: false
         }
     }
 
@@ -235,6 +237,7 @@ impl ClientHandler for SimpleHandler {
         self.result.push(Box::new(LoginDisconnect {
             reason: "{\"text\": \"Successfully authenticated!\"}".to_string()
         }));
+        self.should_disconnect = true;
     }
 }
 
@@ -326,6 +329,9 @@ pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: So
                 .map_err(|e| eprintln!("Error when sending: {:?}", e));
 
 
+            let on_disconnect = on_disconnect.clone();
+            let on_disconnect_2 = on_disconnect.clone();
+            let stop_server_2 = stop_server.clone();
 
             //tokio::spawn(sink);
 
@@ -334,7 +340,6 @@ pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: So
 
             let processor = reader
                 .for_each(move |pkt| {
-
                     pkt.handle_client(&mut handler);
 
                     let packets: Vec<Box<Packet>> = handler.result.drain(..).collect();
@@ -342,16 +347,32 @@ pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: So
                     let crypto = crypto.clone();
 
 
+                    let addr = addr.clone();
                     let new_tx = tx.clone();
+                    let on_disconnect = on_disconnect.clone();
+                    let should_shutdown = handler.should_disconnect;
+                    let stop_server = stop_server_2.clone();
 
                     crypto_future_opt
                         .map(move |future| Box::new(future.map(move |c| *crypto.lock().unwrap() = Some(c))) as Box<Future<Item = (), Error = std::io::Error> + Send>)
                         .unwrap_or_else(|| Box::new(tokio::prelude::future::ok(())))
                         .and_then(move |_| {
+                            //let stop_server_new = stop_server.clone();
+                            let on_disconnect_new = on_disconnect.clone();
                             println!("Sending: {:?}", packets);
                             new_tx.clone().send_all(iter_ok(packets))
                                 .map(|_| ())
                                 .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
+                                .then(move |_| {
+                                    if should_shutdown && on_disconnect(socket_addr) {
+                                        println!("Stopping for real!");
+                                        Box::new(stop_server.send(()).map(|_| ()).map_err(|e| std::io::Error::new(ErrorKind::Other, e)))
+                                            as Box<Future<Item = (), Error = std::io::Error> + Send>
+                                    } else {
+                                        Box::new(future::ok(())) as Box<Future<Item = (), Error = std::io::Error> + Send>
+                                    }
+                                    //tokio::prelude::future::ok(())
+                                })
 
                         })
                 })
@@ -360,9 +381,10 @@ pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: So
                 });
 
             let stop_server = stop_server.clone();
-            let on_disconnect = on_disconnect.clone();
+            //let on_disconnect = on_disconnect.clone();
 
             tokio::spawn(processor.select(sink).map(|_| ()).map_err(|(err, _)| err).then(move |_| {
+                let on_disconnect = on_disconnect_2.clone();
                 println!("Done: {:?}", socket_addr);
                 if on_disconnect(socket_addr) {
                     Box::new(stop_server.send(()).map(|_| ()).map_err(|_| ())) as Box<Future<Item = (), Error = ()> + Send>

@@ -184,7 +184,7 @@ fn main() {
     DropbearTunneler::new("serveo.net", key).open(&[
         PortFoward {
             local: ("localhost".to_string(), 25565),
-            remote: (domain.to_string(), 25565)
+            remote: (domain.to_string(), 25568)
         }]).expect("Failed to port forward!");
 
     let addr = "127.0.0.1:25565".parse::<SocketAddr>().unwrap();
