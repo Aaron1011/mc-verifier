@@ -8,6 +8,8 @@ use std::net::SocketAddr;
 //use std::sync::Arc;
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
+use nix::unistd::Pid;
+use nix::sys::signal::Signal;
 use mc_verifier::server_future;
 
 /// Opens a tunnel to the public internet, exposing the local
@@ -16,7 +18,7 @@ trait Tunneler {
 
     /// Forwards the specified remote address to the specified
     /// local address.
-    fn open(&self, forwards: &[PortFoward]) -> Result<(), std::io::Error>;
+    fn open(&self, forwards: &[PortFoward]) -> Result<u32, std::io::Error>;
 }
 
 static DBCLIENT_BIN: &'static [u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dbclient"));
@@ -36,7 +38,7 @@ impl DropbearTunneler {
     }
 
     #[cfg(target_os = "linux")]
-    fn fork_in_memory(&self, args: &[String]) -> Result<(), std::io::Error> {
+    fn fork_in_memory(&self, args: &[String]) -> Result<u32, std::io::Error> {
         use nix::sys::memfd::{memfd_create, MemFdCreateFlag};
         use nix::unistd::{fexecve, ForkResult};
         use std::os::unix::io::{FromRawFd, IntoRawFd};
@@ -54,9 +56,9 @@ impl DropbearTunneler {
         match nix::unistd::fork().unwrap() {
             ForkResult::Child => {
                 fexecve(fd, &args, &[]).unwrap();
-                Ok(())
+                Err(std::io::Error::new(std::io::ErrorKind::Other, "fexecve() failed!"))
             },
-            ForkResult::Parent { ..} => Ok(())
+            ForkResult::Parent { child } => Ok(child.as_raw() as u32)
         }
     }
 }
@@ -67,7 +69,7 @@ struct PortFoward {
 }
 
 impl Tunneler for DropbearTunneler {
-    fn open(&self, forwards: &[PortFoward]) -> Result<(), std::io::Error> {
+    fn open(&self, forwards: &[PortFoward]) -> Result<u32, std::io::Error> {
         let mut args = vec!["-i".to_string(), self.private_key.to_str().unwrap().to_string()];
         for forward in forwards {
             args.push("-R".to_string());
@@ -181,7 +183,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let domain = args[1].clone();
     let key = args[2].clone();
-    DropbearTunneler::new("serveo.net", key).open(&[
+    let child_pid = DropbearTunneler::new("serveo.net", key).open(&[
         PortFoward {
             local: ("localhost".to_string(), 25565),
             remote: (domain.to_string(), 25569)
@@ -189,10 +191,13 @@ fn main() {
 
     let addr = "127.0.0.1:25565".parse::<SocketAddr>().unwrap();
     println!("Running server on {:?}", addr);
+
     tokio::run(server_future(addr, |addr| {
         println!("Client {:?} disconnected, stopping server", addr);
         true
     }));
+
+    nix::sys::signal::kill(Pid::from_raw(child_pid as i32), Some(Signal::SIGINT)).expect(&format!("Failed to kill tunneler pid {:?}", child_pid));
     //ServeoTunneler::new().open(("localhost", 25567), ("localhost", 4000)).unwrap();
     //ServeoTunneler::new().open(("localhost", 25567), ("testing.mc.aaron1011.pw", 25565)).unwrap();
 }
