@@ -15,3 +15,5 @@ hex = "0.3.2"
 hyper = "0.12.25"
 hyper-tls = "0.3.1"
 num-bigint = "0.2.2"
+#ssh2 = "0.3.3"
+ssh2 = {path = "../ssh2-rs"}
