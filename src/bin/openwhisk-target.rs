@@ -183,6 +183,13 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let domain = args[1].clone();
     let key = args[2].clone();
+
+    // Send SIGINT to children, to ensure that we don't
+    // leave dropbear processes running if we unexpectedly die
+    unsafe {
+        libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGINT);
+    }
+
     let child_pid = DropbearTunneler::new("serveo.net", key).open(&[
         PortFoward {
             local: ("localhost".to_string(), 25565),
