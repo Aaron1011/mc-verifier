@@ -328,7 +328,7 @@ impl Decoder for PacketCodec {
 async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Arc<Mutex<SimpleHandler>>,
                        crypto: Arc<Mutex<Option<Encryption>>>, addr: SocketAddr,
                        tx: Sender<Result<Box<Packet>, std::io::Error>>,
-                       on_disconnect: Arc<Box<Fn(SocketAddr) -> bool + Send + Sync + 'static>>) {
+                       on_disconnect: Arc<Box<Fn(SocketAddr) -> bool + Send + Sync + 'static>>) -> Result<(), std::io::Error> {
     let handler = handler.clone();
     let crypto_future_opt = handler.lock().unwrap().crypto_future.take();
     if let Some(c) = crypto_future_opt {
@@ -368,6 +368,8 @@ async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Arc<Mu
             } else {
                 //Pin::from(Box::new(future::ok(()))) 
             }
+
+            Ok(())
 
 }
 
@@ -421,7 +423,7 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<Fn(SocketAddr) -> bool
                     let addr = addr;
                     let tx = tx.clone();
                     let on_disconnect = on_disconnect.clone();
-                    handle_packet(pkt, handler.clone(), crypto.clone(), addr, tx.clone(), on_disconnect.clone())
+                    handle_packet(pkt, handler.clone(), crypto.clone(), addr, tx.clone(), on_disconnect.clone()).map(|r| r.unwrap())
                     //future::ready(())
                 });
 
