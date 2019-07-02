@@ -359,7 +359,6 @@ impl Decoder for PacketCodec {
 }
 
 pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>) -> impl Stream<Item = Result<AuthedUser, Box<dyn Error>>> {
-    //let a: crate::packet::Packet = panic!();
     let listener = TcpListener::bind(&addr).expect("Unable to bind TCP listener!");
     let on_disconnect = Arc::new(on_disconnect);
 
@@ -389,7 +388,6 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
 
 
                 let mut handler = SimpleHandler::new("".to_string());
-                let _stop_server_new = stop_server.clone();
 
                 let on_disconnect_new = on_disconnect.clone();
 
