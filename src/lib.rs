@@ -16,8 +16,6 @@ use openssl::symm::{Cipher, Mode, Crypter};
 use futures::prelude::*;
 use futures::stream;
 
-
-
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::Sender;
 use tokio::net::TcpListener;
@@ -113,9 +111,11 @@ struct Encryption {
     block_size: usize
 }
 
+type CryptoFuture = Option<Pin<Box<dyn Future<Output = Result<Encryption, std::io::Error>> + Send>>>;
+
 struct SimpleHandler {
     result: Vec<Box<dyn Packet>>,
-    crypto_future: Option<Pin<Box<dyn Future<Output = Result<Encryption, std::io::Error>> + Send>>>,
+    crypto_future: CryptoFuture,
     public_key: Option<PKey<Private>>,
     encoded_public_key: Option<Vec<u8>>,
     verify_token: Option<[u8; 4]>,
@@ -338,16 +338,15 @@ impl Decoder for PacketCodec {
     }
 }
 
-async fn handle_packet(pkt: Result<Box<dyn Packet>, std::io::Error>, handler: Arc<Mutex<SimpleHandler>>,
+async fn handle_packet(packets: Vec<Result<Box<dyn Packet>, std::io::Error>>,
+                       crypto_future_opt: CryptoFuture,
                        crypto: Arc<Mutex<Option<Encryption>>>, addr: SocketAddr,
                        tx: Sender<Result<Box<dyn Packet>, std::io::Error>>,
                        on_disconnect: Arc<Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>>,
-                       stop_server: Arc<Sender<()>>) -> Result<(), Box<dyn Error>> {
+                       stop_server: Arc<Sender<()>>,
+                       should_shutdown: bool) -> Result<(), Box<dyn Error>> {
 
-    pkt.unwrap().handle_client(&mut *handler.lock().unwrap());
 
-    let handler = handler.clone();
-    let crypto_future_opt = handler.lock().unwrap().crypto_future.take();
     println!("Got crypto future: {:?}", crypto_future_opt.is_some());
     if let Some(c) = crypto_future_opt {
         let c = c.await;
@@ -355,12 +354,10 @@ async fn handle_packet(pkt: Result<Box<dyn Packet>, std::io::Error>, handler: Ar
     }
 
 
-    let packets: Vec<Result<Box<dyn Packet>, std::io::Error>> = handler.lock().unwrap().result.drain(..).map(|p| Ok(p)).collect();
 
 
     let addr = addr.clone();
     let mut new_tx = tx.clone();
-    let should_shutdown = handler.lock().unwrap().should_disconnect;
 
     
     println!("Sending: {:?}", packets);
@@ -414,27 +411,28 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                     });
 
 
-                let on_disconnect = on_disconnect.clone();
-                let on_disconnect_2 = on_disconnect.clone();
-                let _stop_server_2 = stop_server.clone();
-
                 tokio::spawn(sink);
 
 
-                let handler = Arc::new(Mutex::new(SimpleHandler::new("".to_string())));
+                let mut handler = SimpleHandler::new("".to_string());
                 let stop_server_new = stop_server.clone();
-                //reader.shutdown();
+
+                let on_disconnect_new = on_disconnect.clone();
 
                 reader
-                    .for_each(move |pkt| {
+                    .for_each(|pkt| {
                         println!("Got packet: {:?}", pkt);
-                        handle_packet(pkt, handler.clone(), crypto.clone(), addr, tx.clone(), on_disconnect.clone(), stop_server_new.clone()).map(|r| r.unwrap())
-                        //future::ready(())
+                        pkt.unwrap().handle_client(&mut handler);
+                        let packets: Vec<Result<Box<dyn Packet>, std::io::Error>> = handler.result.drain(..).map(|p| Ok(p)).collect();
+                        let crypto_future_opt = handler.crypto_future.take();
+
+
+                        handle_packet(packets, crypto_future_opt, crypto.clone(), addr, tx.clone(), on_disconnect.clone(), stop_server_new.clone(), handler.should_disconnect
+                                      ).map(|r| r.unwrap())
                     }).await;
 
-                let on_disconnect = on_disconnect_2.clone();
                 println!("Done: {:?}", socket_addr);
-                if on_disconnect(socket_addr) {
+                if on_disconnect_new(socket_addr) {
                     let mut do_stop = (*stop_server).clone();
                     do_stop.send(()).map(|r| r.unwrap()).await;
                 }
