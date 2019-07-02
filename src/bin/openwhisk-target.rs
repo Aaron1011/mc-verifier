@@ -199,10 +199,10 @@ fn main() {
     let addr = "127.0.0.1:25565".parse::<SocketAddr>().unwrap();
     println!("Running server on {:?}", addr);
 
-    tokio::run(server_future(addr, |addr| {
+    tokio::run(server_future(addr, Box::new(|addr| {
         println!("Client {:?} disconnected, stopping server", addr);
         true
-    }));
+    })));
 
     nix::sys::signal::kill(Pid::from_raw(child_pid as i32), Some(Signal::SIGINT)).expect(&format!("Failed to kill tunneler pid {:?}", child_pid));
     //ServeoTunneler::new().open(("localhost", 25567), ("localhost", 4000)).unwrap();

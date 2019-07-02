@@ -53,6 +53,14 @@ use crate::packet::server::*;
 
 use hyper::Client;
 
+pub struct ExecutorCompat;
+
+impl futures01::future::Executor<Box<dyn futures01::Future<Item = (), Error = ()> + Send + 'static>> for ExecutorCompat {
+    fn execute(&self, future: Box<dyn futures01::Future<Item = (), Error = ()> + Send>) -> Result<(), futures01::future::ExecuteError<Box<dyn futures01::Future<Item = (), Error = ()> + Send>>> {
+        tokio::spawn(future.compat().map(|r| r.unwrap()));
+        Ok(())
+    }
+}
 
 struct PacketCodec {
     state: u64,
@@ -218,7 +226,7 @@ impl ClientHandler for SimpleHandler {
 
         // 4 is number of blocking DNS threads
         let https = HttpsConnector::new(4).unwrap();
-        let client = Client::builder().build::<_, hyper::Body>(https);
+        let client = Client::builder().executor(ExecutorCompat).build::<_, hyper::Body>(https);
         let uri = format!("https://sessionserver.mojang.com/session/minecraft/hasJoined?username={}&serverId={}", self.username.as_ref().unwrap(), &hash)
             .parse().unwrap();
 
@@ -336,14 +344,17 @@ async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Arc<Mu
                        tx: Sender<Result<Box<Packet>, std::io::Error>>,
                        on_disconnect: Arc<Box<Fn(SocketAddr) -> bool + Send + Sync + 'static>>,
                        stop_server: Arc<Mutex<Sender<()>>>) -> Result<(), Box<Error>> {
+
+    pkt.unwrap().handle_client(&mut *handler.lock().unwrap());
+
     let handler = handler.clone();
     let crypto_future_opt = handler.lock().unwrap().crypto_future.take();
+    println!("Got crypto future: {:?}", crypto_future_opt.is_some());
     if let Some(c) = crypto_future_opt {
         let c = c.await;
         *crypto.lock().unwrap() = Some(c.unwrap());
     }
 
-    pkt.unwrap().handle_client(&mut *handler.lock().unwrap());
 
     let packets: Vec<Result<Box<Packet>, std::io::Error>> = handler.lock().unwrap().result.drain(..).map(|p| Ok(p)).collect();
     let crypto = crypto.clone();
