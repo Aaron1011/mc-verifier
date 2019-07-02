@@ -4,9 +4,11 @@
 
 use std::error::Error;
 
-use futures::compat::{Future01CompatExt, Stream01CompatExt};
+use futures::compat::{Future01CompatExt, Stream01CompatExt, Compat};
 
 use json::object;
+
+use stream_cancel::StreamExt as _;
 
 use openssl::rsa::{Rsa, Padding};
 use openssl::pkey::Private;
@@ -23,6 +25,8 @@ use tokio::sync::mpsc::Sender;
 use tokio::net::TcpListener;
 use tokio::codec::{Decoder, Encoder, Framed};
 use bytes::BytesMut;
+
+use futures::channel::oneshot;
 
 use num_bigint::BigInt;
 
@@ -196,7 +200,7 @@ impl ClientHandler for SimpleHandler {
                     pub_key: ByteArray::new(encoded_public_key),
                     verify_token: ByteArray::new(verify_token.to_vec())
                 })],
-                should_disconnect: false
+                done: Ok(None)
             })
         });
 
@@ -284,7 +288,7 @@ impl ClientHandler for SimpleHandler {
                 Ok(HandlerAction {
                     encryption: Some(enc),
                     packets,
-                    should_disconnect: true
+                    done: Ok(Some(AuthedUser { body: data }))
                 })
             }))))
     }
@@ -362,11 +366,11 @@ async fn handle_packet(
                        mut tx: Sender<Response>,
                        on_disconnect: Arc<Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>>,
                        stop_server: Arc<Sender<()>>,
-                       ) -> Result<(), Box<dyn Error>> {
+                       ) -> Result<Option<AuthedUser>, Box<dyn Error>> {
 
 
     let mut packets = vec![];
-    let mut should_shutdown = false;
+    let mut done = Ok(None);
 
     println!("Got  ret: {:?}", handler_ret.is_some());
     if let Some(c) = handler_ret {
@@ -375,7 +379,7 @@ async fn handle_packet(
             *crypto.lock().unwrap() = Some(enc);
         }
         packets = res.packets.drain(..).map(|p| Response::Packet(p)).collect();
-        should_shutdown = res.should_disconnect;
+        done = res.done;
     }
 
 
@@ -390,27 +394,35 @@ async fn handle_packet(
 
     tx.send_all(&mut packet_stream).await?;
 
-    if should_shutdown && on_disconnect(addr) {
+    if (done.is_err() || done.as_ref().unwrap().is_some()) &&on_disconnect(addr) {
         println!("Stopping for real!");
         let mut inner = (*stop_server).clone();
-        tx.send(Response::Shutdown(inner)).await?;
+        tx.send(Response::Shutdown(inner)).await.unwrap();
     }
 
-    Ok(())
+    done.map_err(|e| Box::new(e) as Box<std::error::Error>)
 }
 
-pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>) -> impl Future<Output = ()> {
+
+
+pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>) -> impl Stream<Item = Result<AuthedUser, Box<Error>>> {
     //let a: crate::packet::Packet = panic!();
     let listener = TcpListener::bind(&addr).expect("Unable to bind TCP listener!");
     let on_disconnect = Arc::new(on_disconnect);
 
-    let (stop_server, server_done) = channel::<()>(1);
+    let (stop_server, mut server_done) = channel::<()>(1);
     let stop_server = Arc::new(stop_server);
+    let stop_server_new = stop_server.clone();
+
+    let on_disconnect = on_disconnect.clone();
 
     let tcp_server = listener.incoming()
-        .for_each(move |socket| {
+        .then(move |socket| {
             let on_disconnect = on_disconnect.clone();
-            let stop_server = stop_server.clone();
+            let stop_server = stop_server_new.clone();
+
+
+            let (mut user_tx, mut user_rx) = oneshot::channel();
 
             let proc_fut = async move {
                 let socket = socket.unwrap();
@@ -424,14 +436,16 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                 let framed = Framed::new(socket, codec);
 
 
-                let (mut writer, reader) = framed.split();
+                let (mut writer, mut reader) = framed.split();
                 let (tx, mut rx) = channel(10);
 
                 tokio::spawn(async move {
                     while let Some(r) = rx.next().await {
                         match r {
                             Response::Packet(p) => writer.send(p).await.unwrap(),
-                            Response::Shutdown(mut s) => s.send(()).await.unwrap()
+                            Response::Shutdown(mut s) => {
+                                s.send(()).await.map_err(|e| eprintln!("Other failed to shutdown: {:?}", e));
+                            }
                         }
                     }
                 });
@@ -449,14 +463,22 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
 
                 let on_disconnect_new = on_disconnect.clone();
 
-                reader
-                    .for_each(|pkt| {
-                        println!("Got packet: {:?}", pkt);
-                        let ret = pkt.unwrap().handle_client(&mut handler);
-                        handle_packet(ret, crypto.clone(), addr, tx.clone(), on_disconnect.clone(), stop_server_new.clone()
-                                      ).map(|r| r.unwrap())
-                    }).await;
 
+                while let Some(pkt) = reader.next().await {
+                    println!("Got packet: {:?}", pkt);
+                    let ret = pkt.unwrap().handle_client(&mut handler);
+                    let res = handle_packet(
+                        ret, crypto.clone(), addr, tx.clone(), on_disconnect.clone(), stop_server_new.clone()
+                    ).map(|r| r.unwrap()).await;
+
+                    println!("Got user res: {:?}", res);
+                    if let Some(user) = res {
+                        user_tx.send(user).unwrap();
+                        break;
+                    }
+                }
+
+                
                 println!("Done: {:?}", socket_addr);
                 if on_disconnect_new(socket_addr) {
                     let mut do_stop = (*stop_server).clone();
@@ -469,8 +491,9 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
             };
 
             tokio::spawn(proc_fut);
-            future::ready(())
+            user_rx.map(|r| Ok(r.unwrap()))
         });
 
-    future::select(tcp_server.map(|_| ()), server_done.into_future()).map(|_| ())
+    Compat::new(tcp_server).take_until(Box::new(Compat::new(Box::new(server_done.into_future().map(|_| Ok(())))))).compat()
+    //futures::stream::select(tcp_server, server_done.map(|_| Err(Box::new(std::io::Error::new()
 }

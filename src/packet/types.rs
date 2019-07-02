@@ -13,7 +13,12 @@ pub type HandlerRet = Option<Pin<Box<dyn Future<Output = Result<HandlerAction, s
 pub struct HandlerAction {
     pub encryption: Option<Encryption>,
     pub packets: Vec<Box<dyn Packet + Send>>,
-    pub should_disconnect: bool
+    pub done: Result<Option<AuthedUser>, Box<std::io::Error>>
+}
+
+#[derive(Debug)]
+pub struct AuthedUser {
+    pub body: String
 }
 
 #[derive(Copy, Clone, Default, Debug)]
