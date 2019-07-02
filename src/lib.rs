@@ -253,48 +253,49 @@ impl ClientHandler for SimpleHandler {
 
         println!("Sending request: {:?}", uri);
 
-        Some(Pin::from(Box::new(client.get(uri).compat()
-            .map(|r| r.map_err(convert_hyper_err))
-            .and_then(async move |res| {
+        Some(Pin::from(Box::new(async move {
 
-                let secret_key = secret_key.clone();
-                println!("Got response: {:?}", res);
+            let res = client.get(uri).compat().await.unwrap();
+                
 
-                let body = res.into_body().compat();
+            let secret_key = secret_key.clone();
+            println!("Got response: {:?}", res);
 
-                let data = String::from_utf8(body.fold(vec![], |mut acc, chunk| {
-                    acc.extend_from_slice(&chunk.unwrap());
-                    future::ready(acc)
-                }).await).expect("Failed to parse Mojang response");
+            let body = res.into_body().compat();
 
-                println!("Got body: {:?}", data);
+            let data = String::from_utf8(body.fold(vec![], |mut acc, chunk| {
+                acc.extend_from_slice(&chunk.unwrap());
+                future::ready(acc)
+            }).await).expect("Failed to parse Mojang response");
 
-                let encrypt = Crypter::new(
-                    Cipher::aes_128_cfb8(),
-                    Mode::Encrypt,
-                    &secret_key,
-                    Some(&secret_key) // IV and secret are the same in Minecraft
-                ).unwrap();
+            println!("Got body: {:?}", data);
 
-                let decrypt = Crypter::new(
-                    Cipher::aes_128_cfb8(),
-                    Mode::Decrypt,
-                    &secret_key,
-                    Some(&secret_key)
-                ).unwrap();
-                let enc = Encryption { encrypt, decrypt, block_size: Cipher::aes_128_cfb8().block_size() };
-                let packets = vec![Box::new(LoginDisconnect {
-                    reason: object! {
-                        "text" => format!("Successfully authenticated: {}", data)
-                    }.to_string()
-                }) as Box<dyn Packet + Send>];
+            let encrypt = Crypter::new(
+                Cipher::aes_128_cfb8(),
+                Mode::Encrypt,
+                &secret_key,
+                Some(&secret_key) // IV and secret are the same in Minecraft
+            ).unwrap();
 
-                Ok(HandlerAction {
-                    encryption: Some(enc),
-                    packets,
-                    done: Ok(Some(AuthedUser { body: data }))
-                })
-            }))))
+            let decrypt = Crypter::new(
+                Cipher::aes_128_cfb8(),
+                Mode::Decrypt,
+                &secret_key,
+                Some(&secret_key)
+            ).unwrap();
+            let enc = Encryption { encrypt, decrypt, block_size: Cipher::aes_128_cfb8().block_size() };
+            let packets = vec![Box::new(LoginDisconnect {
+                reason: object! {
+                    "text" => format!("Successfully authenticated: {}", data)
+                }.to_string()
+            }) as Box<dyn Packet + Send>];
+
+            Ok(HandlerAction {
+                encryption: Some(enc),
+                packets,
+                done: Ok(Some(AuthedUser { body: data }))
+            })
+        })))
     }
 }
 
@@ -415,10 +416,6 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                         user_res = res.done.map_err(|e| Box::new(e) as Box<dyn std::error::Error>).unwrap();
                     }
 
-                    /*let res = handle_packet(
-                        &mut framed, ret, addr, on_disconnect.clone(), stop_server_new.clone()
-                    ).map(|r| r.unwrap()).await*/;
-
                     println!("Got user res: {:?}", user_res);
                     if let Some(user) = user_res {
                         user_tx.send(user).unwrap();
@@ -443,5 +440,4 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
         });
 
     Compat::new(tcp_server).take_until(Box::new(Compat::new(Box::new(server_done.into_future().map(|_| Ok(())))))).compat()
-    //futures::stream::select(tcp_server, server_done.map(|_| Err(Box::new(std::io::Error::new()
 }
