@@ -7,7 +7,7 @@ use std::net::SocketAddr;
 //use tokio::prelude::Future;
 //use std::sync::Arc;
 use std::ffi::CString;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use nix::unistd::Pid;
 use nix::sys::signal::Signal;
 use mc_verifier::server_future;

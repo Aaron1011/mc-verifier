@@ -15,9 +15,9 @@ use openssl::symm::{Cipher, Mode, Crypter};
 
 use futures::prelude::*;
 use futures::stream;
-use futures::future::BoxFuture;
 
-use tokio::prelude::*;
+
+
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::Sender;
 use tokio::net::TcpListener;
@@ -29,11 +29,10 @@ use num_bigint::BigInt;
 use futures::future;
 use futures::StreamExt;
 use futures::FutureExt;
-use futures::TryStreamExt;
 use futures::TryFutureExt;
 
-use std::rc::Rc;
-use std::cell::RefCell;
+
+
 
 use std::pin::Pin;
 
@@ -73,7 +72,7 @@ impl PacketCodec {
         PacketCodec { state: 0, encryption: enc, real_encryption: None }
     }
 
-    fn encrypt(&mut self, packet: Box<Packet>, dst: &mut BytesMut) {
+    fn encrypt(&mut self, packet: Box<dyn Packet>, dst: &mut BytesMut) {
         println!("Encrypting!");
         let mut raw = BytesMut::with_capacity(dst.capacity());
         self.encode_raw(packet, &mut raw);
@@ -91,7 +90,7 @@ impl PacketCodec {
     }
 
 
-    fn encode_raw(&mut self, packet: Box<Packet>, dst: &mut BytesMut) {
+    fn encode_raw(&mut self, packet: Box<dyn Packet>, dst: &mut BytesMut) {
         let mut data = Vec::new();
         packet.get_id().write(&mut data);
         packet.write(&mut data);
@@ -115,8 +114,8 @@ struct Encryption {
 }
 
 struct SimpleHandler {
-    result: Vec<Box<Packet>>,
-    crypto_future: Option<Pin<Box<Future<Output = Result<Encryption, std::io::Error>> + Send>>>,
+    result: Vec<Box<dyn Packet>>,
+    crypto_future: Option<Pin<Box<dyn Future<Output = Result<Encryption, std::io::Error>> + Send>>>,
     public_key: Option<PKey<Private>>,
     encoded_public_key: Option<Vec<u8>>,
     verify_token: Option<[u8; 4]>,
@@ -274,7 +273,7 @@ impl ClientHandler for SimpleHandler {
 }
 
 impl Encoder for PacketCodec {
-    type Item = Box<Packet>;
+    type Item = Box<dyn Packet>;
     type Error = std::io::Error;
 
     fn encode(&mut self, packet: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
@@ -294,13 +293,13 @@ impl Encoder for PacketCodec {
 }
 
 impl Decoder for PacketCodec {
-    type Item = Box<Packet>;
+    type Item = Box<dyn Packet>;
     type Error = std::io::Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let mut len = VarInt::new(0);
         let mut slice = buf.as_ref();
-        let reader = &mut slice as &mut std::io::Read;
+        let reader = &mut slice as &mut dyn std::io::Read;
         let res = len.read(reader);
         match res {
             Ok(()) => {}
@@ -339,11 +338,11 @@ impl Decoder for PacketCodec {
     }
 }
 
-async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Arc<Mutex<SimpleHandler>>,
+async fn handle_packet(pkt: Result<Box<dyn Packet>, std::io::Error>, handler: Arc<Mutex<SimpleHandler>>,
                        crypto: Arc<Mutex<Option<Encryption>>>, addr: SocketAddr,
-                       tx: Sender<Result<Box<Packet>, std::io::Error>>,
-                       on_disconnect: Arc<Box<Fn(SocketAddr) -> bool + Send + Sync + 'static>>,
-                       stop_server: Arc<Mutex<Sender<()>>>) -> Result<(), Box<Error>> {
+                       tx: Sender<Result<Box<dyn Packet>, std::io::Error>>,
+                       on_disconnect: Arc<Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>>,
+                       _stop_server: Arc<Mutex<Sender<()>>>) -> Result<(), Box<dyn Error>> {
 
     pkt.unwrap().handle_client(&mut *handler.lock().unwrap());
 
@@ -356,8 +355,8 @@ async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Arc<Mu
     }
 
 
-    let packets: Vec<Result<Box<Packet>, std::io::Error>> = handler.lock().unwrap().result.drain(..).map(|p| Ok(p)).collect();
-    let crypto = crypto.clone();
+    let packets: Vec<Result<Box<dyn Packet>, std::io::Error>> = handler.lock().unwrap().result.drain(..).map(|p| Ok(p)).collect();
+    let _crypto = crypto.clone();
 
 
     let addr = addr.clone();
@@ -384,12 +383,12 @@ async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Arc<Mu
 
 }
 
-pub fn server_future(addr: SocketAddr, on_disconnect: Box<Fn(SocketAddr) -> bool + Send + Sync + 'static>) -> impl Future<Output = ()> {
+pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>) -> impl Future<Output = ()> {
     //let a: crate::packet::Packet = panic!();
     let listener = TcpListener::bind(&addr).expect("Unable to bind TCP listener!");
     let on_disconnect = Arc::new(on_disconnect);
 
-    let (mut stop_server, server_done) = channel::<()>(1);
+    let (stop_server, server_done) = channel::<()>(1);
     let stop_server = Arc::new(Mutex::new(stop_server));
 
     let tcp_server = listener.incoming()
@@ -422,12 +421,12 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<Fn(SocketAddr) -> bool
 
                 let on_disconnect = on_disconnect.clone();
                 let on_disconnect_2 = on_disconnect.clone();
-                let stop_server_2 = stop_server.clone();
+                let _stop_server_2 = stop_server.clone();
 
                 tokio::spawn(sink);
 
 
-                let mut handler = Arc::new(Mutex::new(SimpleHandler::new("".to_string())));
+                let handler = Arc::new(Mutex::new(SimpleHandler::new("".to_string())));
                 let stop_server_new = stop_server.clone();
                 //reader.shutdown();
 

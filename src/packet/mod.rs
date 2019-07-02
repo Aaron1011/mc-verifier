@@ -10,9 +10,9 @@ pub use server::ServerHandler;
 use std::io::Read;
 use std::collections::HashMap;
 
-pub fn parse_packet(handlers: &HashMap<u64, Box<Fn(&[u8]) -> ParsedPacket + Sync + Send>>, mut data: &[u8]) -> ParsedPacket {
+pub fn parse_packet(handlers: &HashMap<u64, Box<dyn Fn(&[u8]) -> ParsedPacket + Sync + Send>>, mut data: &[u8]) -> ParsedPacket {
     let data_ref = &mut data;
-    let reader = data_ref as &mut Read;
+    let reader = data_ref as &mut dyn Read;
 
     let mut len = VarInt::new(0);
     len.read(reader).expect("Failed to read length!");

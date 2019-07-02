@@ -12,8 +12,8 @@ pub struct VarInt {
 
 #[derive(Debug)]
 pub struct ParsedPacket {
-    pub boxed: Box<Packet>,
-    pub any: Box<Any>
+    pub boxed: Box<dyn Packet>,
+    pub any: Box<dyn Any>
 }
 
 impl VarInt {
@@ -21,7 +21,7 @@ impl VarInt {
         VarInt { val }
     }
 
-    pub fn from_read(r: &mut Read) -> Result<VarInt, ReadErr> {
+    pub fn from_read(r: &mut dyn Read) -> Result<VarInt, ReadErr> {
         let mut var_int = VarInt::new(0);
         var_int.read(r)?;
         Ok(var_int)
@@ -47,7 +47,7 @@ pub enum ReadErr {
     // Some IO error
     IoError(std::io::Error),
     // Something else
-    Other(Box<std::error::Error + Send + Sync>)
+    Other(Box<dyn std::error::Error + Send + Sync>)
 }
 
 impl std::error::Error for ReadErr {
@@ -94,34 +94,34 @@ impl From<std::io::Error> for ReadErr {
 pub type ReadResult = Result<(), ReadErr>;
 
 pub trait Writeable {
-    fn write(&self, w: &mut Write);
+    fn write(&self, w: &mut dyn Write);
 }
 
 pub trait Readable {
-    fn read(&mut self, r: &mut Read) -> ReadResult;
+    fn read(&mut self, r: &mut dyn Read) -> ReadResult;
 }
 
 impl Readable for u16 {
-    fn read(&mut self, r: &mut Read) -> ReadResult {
+    fn read(&mut self, r: &mut dyn Read) -> ReadResult {
         *self = r.read_u16::<BigEndian>()?;
         Ok(())
     }
 }
 
 impl Writeable for u16 {
-    fn write(&self, w: &mut Write) {
+    fn write(&self, w: &mut dyn Write) {
         w.write_u16::<BigEndian>(*self).expect("Failed to write VarInt!");
     }
 }
 
 impl Writeable for [u8] {
-    fn write(&self, w: &mut Write) {
+    fn write(&self, w: &mut dyn Write) {
         w.write_all(&self).expect("Failed to write [u8]");
     }
 }
 
 impl Readable for String {
-    fn read(&mut self, r: &mut Read) -> ReadResult {
+    fn read(&mut self, r: &mut dyn Read) -> ReadResult {
         let mut len = VarInt::new(0);
         len.read(r)?;
         let mut data = vec![0; len.into()];
@@ -132,14 +132,14 @@ impl Readable for String {
 }
 
 impl Writeable for String {
-    fn write(&self, w: &mut Write) {
+    fn write(&self, w: &mut dyn Write) {
         VarInt::new(self.len() as u64).write(w);
         self.as_bytes().write(w);
     }
 }
 
 impl Writeable for VarInt {
-    fn write(&self, w: &mut Write) {
+    fn write(&self, w: &mut dyn Write) {
         let mut val = self.val;
 
         loop {
@@ -157,7 +157,7 @@ impl Writeable for VarInt {
 }
 
 impl Readable for VarInt {
-    fn read(&mut self, r: &mut Read) -> ReadResult {
+    fn read(&mut self, r: &mut dyn Read) -> ReadResult {
         let mut data = [0u8];
 
         let mut num_read = 0u64;
@@ -201,7 +201,7 @@ impl ByteArray {
 }
 
 impl Readable for ByteArray {
-    fn read(&mut self, r: &mut Read) -> ReadResult {
+    fn read(&mut self, r: &mut dyn Read) -> ReadResult {
         self.len.read(r)?;
         self.data = vec![0; self.len.into()];
         r.read_exact(&mut self.data)?;
@@ -210,7 +210,7 @@ impl Readable for ByteArray {
 }
 
 impl Writeable for ByteArray {
-    fn write(&self, w: &mut Write) {
+    fn write(&self, w: &mut dyn Write) {
         self.len.write(w);
         self.data.as_slice().write(w); 
     }
@@ -339,9 +339,9 @@ pub trait Packet: Readable + Writeable + Debug + Send {
 
     fn get_id(&self) -> VarInt;
 
-    fn handle_client(&self, handler: &mut crate::packet::ClientHandler);
+    fn handle_client(&self, handler: &mut dyn crate::packet::ClientHandler);
 
-    fn handle_server(&self, handler: &mut crate::packet::ServerHandler);
+    fn handle_server(&self, handler: &mut dyn crate::packet::ServerHandler);
 
 
     // This is actually serialized as a VarInt,
