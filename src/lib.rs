@@ -6,6 +6,8 @@ use std::error::Error;
 
 use futures::compat::{Future01CompatExt, Stream01CompatExt};
 
+use json::object;
+
 use openssl::rsa::{Rsa, Padding};
 use openssl::pkey::Private;
 use openssl::pkey::PKey;
@@ -113,27 +115,22 @@ pub struct Encryption {
 
 
 struct SimpleHandler {
-    result: Vec<Box<dyn Packet>>,
-    //crypto_future: CryptoFuture,
     public_key: Option<PKey<Private>>,
     encoded_public_key: Option<Vec<u8>>,
     verify_token: Option<[u8; 4]>,
     username: Option<String>,
     server_id: String,
-    should_disconnect: bool
 }
 
 impl SimpleHandler {
 
     fn new(server_id: String) -> SimpleHandler {
         SimpleHandler {
-            result: Vec::new(),
             public_key: None,
             encoded_public_key: None,
             verify_token: None,
             username: None,
             server_id,
-            should_disconnect: false
         }
     }
 
@@ -182,12 +179,23 @@ impl ClientHandler for SimpleHandler {
         rand_bytes(&mut verify_token).expect("Failed to generate verify token");
         self.verify_token = Some(verify_token);
 
-        self.result.push(Box::new(EncryptionRequest {
-            server_id: self.server_id.clone(),
-            pub_key: ByteArray::new(self.encoded_public_key.clone().unwrap()),
-            verify_token: ByteArray::new(verify_token.to_vec())
-        }));
-        None
+        let server_id = self.server_id.clone();
+        let encoded_public_key = self.encoded_public_key.clone().unwrap();
+
+        let gen = future::ok(()).and_then(async move |_| {
+            Ok(HandlerAction {
+                encryption: None,
+                packets: vec![Box::new(EncryptionRequest {
+                    server_id: server_id.clone(),
+                    pub_key: ByteArray::new(encoded_public_key),
+                    verify_token: ByteArray::new(verify_token.to_vec())
+                })],
+                should_disconnect: false
+            })
+        });
+
+
+        Some(Pin::from(Box::new(gen) as Box<Future<Output = Result<HandlerAction, std::io::Error>> + Send>))
     }
 
     fn on_encryptionresponse(&mut self, response: &EncryptionResponse) -> HandlerRet {
@@ -231,12 +239,6 @@ impl ClientHandler for SimpleHandler {
 
         println!("Sending request: {:?}", uri);
 
-        self.result.push(Box::new(LoginDisconnect {
-            reason: "{\"text\": \"Successfully authenticated!\"}".to_string()
-        }));
-        self.should_disconnect = true;
-
-
         Some(Pin::from(Box::new(client.get(uri).compat()
             .map(|r| r.map_err(convert_hyper_err))
             .and_then(async move |res| {
@@ -266,8 +268,18 @@ impl ClientHandler for SimpleHandler {
                     &secret_key,
                     Some(&secret_key)
                 ).unwrap();
-                Ok(Encryption { encrypt, decrypt, block_size: Cipher::aes_128_cfb8().block_size() })
+                let enc = Encryption { encrypt, decrypt, block_size: Cipher::aes_128_cfb8().block_size() };
+                let packets = vec![Box::new(LoginDisconnect {
+                    reason: object! {
+                        "text" => format!("Successfully authenticated: {}", data)
+                    }.to_string()
+                }) as Box<dyn Packet>];
 
+                Ok(HandlerAction {
+                    encryption: Some(enc),
+                    packets,
+                    should_disconnect: true
+                })
             }))))
     }
 }
@@ -338,19 +350,26 @@ impl Decoder for PacketCodec {
     }
 }
 
-async fn handle_packet(packets: Vec<Result<Box<dyn Packet>, std::io::Error>>,
-                       crypto_future_opt: HandlerRet,
+async fn handle_packet(
+                       handler_ret: HandlerRet,
                        crypto: Arc<Mutex<Option<Encryption>>>, addr: SocketAddr,
                        tx: Sender<Result<Box<dyn Packet>, std::io::Error>>,
                        on_disconnect: Arc<Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>>,
                        stop_server: Arc<Sender<()>>,
-                       should_shutdown: bool) -> Result<(), Box<dyn Error>> {
+                       ) -> Result<(), Box<dyn Error>> {
 
 
-    println!("Got crypto future: {:?}", crypto_future_opt.is_some());
-    if let Some(c) = crypto_future_opt {
-        let c = c.await;
-        *crypto.lock().unwrap() = Some(c.unwrap());
+    let mut packets = vec![];
+    let mut should_shutdown = false;
+
+    println!("Got  ret: {:?}", handler_ret.is_some());
+    if let Some(c) = handler_ret {
+        let mut res = c.await?;
+        if let Some(enc) = res.encryption {
+            *crypto.lock().unwrap() = Some(enc);
+        }
+        packets = res.packets.drain(..).map(|p| Ok(p)).collect();
+        should_shutdown = res.should_disconnect;
     }
 
 
@@ -423,10 +442,10 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                     .for_each(|pkt| {
                         println!("Got packet: {:?}", pkt);
                         let ret = pkt.unwrap().handle_client(&mut handler);
-                        let packets: Vec<Result<Box<dyn Packet>, std::io::Error>> = handler.result.drain(..).map(|p| Ok(p)).collect();
+                        //let packets: Vec<Result<Box<dyn Packet>, std::io::Error>> = handler.result.drain(..).map(|p| Ok(p)).collect();
 
 
-                        handle_packet(packets, ret, crypto.clone(), addr, tx.clone(), on_disconnect.clone(), stop_server_new.clone(), handler.should_disconnect
+                        handle_packet(ret, crypto.clone(), addr, tx.clone(), on_disconnect.clone(), stop_server_new.clone()
                                       ).map(|r| r.unwrap())
                     }).await;
 

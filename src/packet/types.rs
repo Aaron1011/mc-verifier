@@ -8,7 +8,13 @@ use std::pin::Pin;
 use std::future::Future;
 use crate::Encryption;
 
-pub type HandlerRet = Option<Pin<Box<dyn Future<Output = Result<Encryption, std::io::Error>> + Send>>>;
+pub type HandlerRet = Option<Pin<Box<dyn Future<Output = Result<HandlerAction, std::io::Error>> + Send>>>;
+
+pub struct HandlerAction {
+    pub encryption: Option<Encryption>,
+    pub packets: Vec<Box<dyn Packet>>,
+    pub should_disconnect: bool
+}
 
 #[derive(Copy, Clone, Default, Debug)]
 pub struct VarInt {
