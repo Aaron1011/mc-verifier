@@ -1,5 +1,7 @@
 #![recursion_limit="128"]
 
+#![feature(async_await)]
+
 use openssl::rsa::{Rsa, Padding};
 use openssl::pkey::Private;
 use openssl::pkey::PKey;
@@ -7,21 +9,37 @@ use openssl::rand::rand_bytes;
 use openssl::sha::Sha1;
 use openssl::symm::{Cipher, Mode, Crypter};
 
+use futures::prelude::*;
+use futures::stream;
+use futures::future::BoxFuture;
+
 use tokio::prelude::*;
-use tokio::prelude::stream::iter_ok;
 use tokio::sync::mpsc::channel;
+use tokio::sync::mpsc::Sender;
 use tokio::net::TcpListener;
 use tokio::codec::{Decoder, Encoder, Framed};
 use bytes::BytesMut;
 
 use num_bigint::BigInt;
 
+use futures::future;
+use futures::StreamExt;
+use futures::FutureExt;
+use futures::TryStreamExt;
+use futures::TryFutureExt;
+
+use std::rc::Rc;
+use std::cell::RefCell;
+
+use std::pin::Pin;
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::io::ErrorKind;
 
-use hyper_tls::HttpsConnector;
+use std::future::Future;
+
+//use hyper_tls::HttpsConnector;
 
 pub mod packet;
 
@@ -29,7 +47,7 @@ use crate::packet::*;
 use crate::packet::client::*;
 use crate::packet::server::*;
 
-use hyper::Client;
+//use hyper::Client;
 
 
 struct PacketCodec {
@@ -86,7 +104,7 @@ struct Encryption {
 
 struct SimpleHandler {
     result: Vec<Box<Packet>>,
-    crypto_future: Option<Box<Future<Item = Encryption, Error = std::io::Error> + Send>>,
+    crypto_future: Option<Pin<Box<Future<Output = Result<Encryption, std::io::Error>> + Send + Unpin>>>,
     public_key: Option<PKey<Private>>,
     encoded_public_key: Option<Vec<u8>>,
     verify_token: Option<[u8; 4]>,
@@ -133,9 +151,9 @@ impl SimpleHandler {
     }
 }
 
-fn convert_hyper_err(err: hyper::error::Error) -> std::io::Error {
+/*fn convert_hyper_err(err: hyper::error::Error) -> std::io::Error {
     std::io::Error::new(ErrorKind::Other, err)
-}
+}*/
 
 impl ClientHandler for SimpleHandler {
 
@@ -195,15 +213,15 @@ impl ClientHandler for SimpleHandler {
         let hash = self.server_hash(&secret_key);
 
         // 4 is number of blocking DNS threads
-        let https = HttpsConnector::new(4).unwrap();
+        /*let https = HttpsConnector::new(4).unwrap();
         let client = Client::builder().build::<_, hyper::Body>(https);
         let uri = format!("https://sessionserver.mojang.com/session/minecraft/hasJoined?username={}&serverId={}", self.username.as_ref().unwrap(), &hash)
             .parse().unwrap();
 
-        println!("Sending request: {:?}", uri);
+        println!("Sending request: {:?}", uri);*/
 
 
-        self.crypto_future = Some(Box::new(client.get(uri)
+        /*self.crypto_future = Some(Box::new(client.get(uri)
             .and_then(move |res| {
 
                 let secret_key = secret_key.clone();
@@ -211,7 +229,7 @@ impl ClientHandler for SimpleHandler {
 
                 res.into_body().fold(vec![], |mut acc, chunk| {
                     acc.extend_from_slice(&chunk);
-                    tokio::prelude::future::ok::<Vec<u8>, hyper::error::Error>(acc)
+                    futures::future::ok::<Vec<u8>, hyper::error::Error>(acc)
                 }).map(|v| String::from_utf8(v).unwrap())
                     .map(move |data| {
                         println!("Got body: {:?}", data);
@@ -232,7 +250,7 @@ impl ClientHandler for SimpleHandler {
                         Encryption { encrypt, decrypt, block_size: Cipher::aes_128_cfb8().block_size() }
                     })
 
-            }).map_err(convert_hyper_err)));
+            }).map_err(convert_hyper_err)));*/
 
         self.result.push(Box::new(LoginDisconnect {
             reason: "{\"text\": \"Successfully authenticated!\"}".to_string()
@@ -307,26 +325,110 @@ impl Decoder for PacketCodec {
     }
 }
 
-pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: SocketAddr, on_disconnect: F) -> impl Future<Item = (), Error = ()> {
+async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Rc<RefCell<SimpleHandler>>,
+                       crypto: Arc<Mutex<Option<Encryption>>>, addr: SocketAddr,
+                       tx: Sender<Result<Box<Packet>, std::io::Error>>,
+                       on_disconnect: Arc<Box<Fn(SocketAddr) -> bool + Send + Sync + 'static>>) {
+    let handler = handler.clone();
+    pkt.unwrap().handle_client(&mut *handler.borrow_mut());
+
+    let packets: Vec<Box<Packet>> = handler.borrow_mut().result.drain(..).collect();
+    let crypto_future_opt = handler.borrow_mut().crypto_future.take();
+    let crypto = crypto.clone();
+
+
+    let addr = addr.clone();
+    let mut new_tx = tx.clone();
+    //let on_disconnect = on_disconnect.clone();
+    let should_shutdown = handler.borrow().should_disconnect;
+
+    let c = crypto_future_opt.unwrap().await;
+    *crypto.lock().unwrap() = Some(c.unwrap());
+
+    //let on_disconnect_new = on_disconnect.clone();
+    println!("Sending: {:?}", packets);
+
+    let mut packet_stream = stream::iter(packets.into_iter().map(|p| Ok(p)));
+
+    new_tx.send_all(&mut packet_stream).await;
+        //.map(|_| ())
+        //.map_err(|e| std::io::Error::new(ErrorKind::Other, e))
+        //.then(move |_| {
+            if should_shutdown && on_disconnect(addr) {
+                println!("Stopping for real!");
+                /*let res = Pin::from(Box::new(stop_server.lock().unwrap().send(()).map(|_| ())
+                    .then(|_|futures::future::err(std::io::Error::new(std::io::ErrorKind::Other, "Manual stop")))) as Box<Future<Output = Result<(), std::io::Error>> + Send>);
+                res*/
+                //Pin::from(Box::new(future::ok(())))
+            } else {
+                //Pin::from(Box::new(future::ok(()))) 
+            }
+
+
+    /*crypto_future_opt
+        .map(move |future| Pin::new(Box::new(future.map(move |c| {
+            *crypto.lock().unwrap() = Some(c.unwrap());
+            Ok(())
+        })) as Box<Future<Output = Result<(), std::io::Error>> + Send + Unpin>))
+        .unwrap_or_else(|| Pin::new(Box::new(futures::future::ok(()))))
+        .and_then(async move |_| {
+            let on_disconnect_new = on_disconnect.clone();
+            println!("Sending: {:?}", packets);
+
+            let mut packet_stream = stream::iter(packets.into_iter().map(|p| Ok(p)));
+
+            new_tx.send_all(&mut packet_stream).await;
+                //.map(|_| ())
+                //.map_err(|e| std::io::Error::new(ErrorKind::Other, e))
+                //.then(move |_| {
+                    if should_shutdown && on_disconnect(socket_addr) {
+                        println!("Stopping for real!");
+                        /*let res = Pin::from(Box::new(stop_server.lock().unwrap().send(()).map(|_| ())
+                            .then(|_|futures::future::err(std::io::Error::new(std::io::ErrorKind::Other, "Manual stop")))) as Box<Future<Output = Result<(), std::io::Error>> + Send>);
+                        res*/
+                        //Pin::from(Box::new(future::ok(())))
+                    } else {
+                        //Pin::from(Box::new(future::ok(()))) 
+                    }
+                    Ok(())
+                    //tokio::prelude::future::ok(())
+                //}).await;
+            //Ok(())
+
+        })
+    .map(|r| {
+        r.map_err(|e| eprintln!("IO Error: {:?}", e));
+    })*/
+
+}
+
+pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: SocketAddr, on_disconnect: F) -> impl Future<Output = ()> {
     //let a: crate::packet::Packet = panic!();
     let listener = TcpListener::bind(&addr).expect("Unable to bind TCP listener!");
     let on_disconnect = Arc::new(on_disconnect);
 
-    let (stop_server, server_done) = channel::<()>(1);
+    let (mut stop_server, server_done) = channel::<()>(1);
+    let stop_server = Arc::new(Mutex::new(stop_server));
 
     let tcp_server = listener.incoming()
-        .map_err(|e| eprintln!("accept failed = {:?}", e))
+        //.map_err(|e| eprintln!("accept failed = {:?}", e))
         .for_each(move |socket| {
+            let socket = socket.unwrap();
             let socket_addr = socket.peer_addr().unwrap();
             let crypto: Arc<Mutex<Option<Encryption>>> = Arc::new(Mutex::new(None));
             let codec = PacketCodec::new(crypto.clone());
+
             let framed = Framed::new(socket, codec);
+
+
             let (writer, reader) = framed.split();
             let (tx, rx) = channel(10);
 
-            let sink = rx.map_err(|e| std::io::Error::new(ErrorKind::Other, e)).forward(writer)
-                .map(|_| ())
-                .map_err(|e| eprintln!("Error when sending: {:?}", e));
+            //let sink = rx.forward(writer);
+            let sink = rx.forward(writer)
+                .map(|r| {
+                    r.map_err(|e| eprintln!("Error when sending: {:?}", e));
+                });
 
 
             let on_disconnect = on_disconnect.clone();
@@ -336,67 +438,34 @@ pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: So
             tokio::spawn(sink);
 
 
-            let mut handler = SimpleHandler::new("".to_string());
+            let mut handler = Rc::new(RefCell::new(SimpleHandler::new("".to_string())));
+            let on_disconnect = Rc::new(on_disconnect);
             //reader.shutdown();
 
             let processor = reader
-                .for_each(move |pkt| {
-                    pkt.handle_client(&mut handler);
-
-                    let packets: Vec<Box<Packet>> = handler.result.drain(..).collect();
-                    let crypto_future_opt = handler.crypto_future.take();
-                    let crypto = crypto.clone();
-
-
-                    let addr = addr.clone();
-                    let new_tx = tx.clone();
-                    let on_disconnect = on_disconnect.clone();
-                    let should_shutdown = handler.should_disconnect;
-                    let stop_server = stop_server_2.clone();
-
-                    crypto_future_opt
-                        .map(move |future| Box::new(future.map(move |c| *crypto.lock().unwrap() = Some(c))) as Box<Future<Item = (), Error = std::io::Error> + Send>)
-                        .unwrap_or_else(|| Box::new(tokio::prelude::future::ok(())))
-                        .and_then(move |_| {
-                            //let stop_server_new = stop_server.clone();
-                            let on_disconnect_new = on_disconnect.clone();
-                            println!("Sending: {:?}", packets);
-                            new_tx.clone().send_all(iter_ok(packets))
-                                .map(|_| ())
-                                .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
-                                .then(move |_| {
-                                    if should_shutdown && on_disconnect(socket_addr) {
-                                        println!("Stopping for real!");
-                                        let res = Box::new(stop_server.send(())
-                                            .then(|_|tokio::prelude::future::err(std::io::Error::new(std::io::ErrorKind::Other, "Manual stop"))))
-                                            as Box<Future<Item = (), Error = std::io::Error> + Send>;
-                                        res
-                                    } else {
-                                        Box::new(future::ok(())) as Box<Future<Item = (), Error = std::io::Error> + Send>
-                                    }
-                                    //tokio::prelude::future::ok(())
-                                })
-
-                        })
-                })
-                .map_err(|err| {
-                    eprintln!("IO Error: {:?}", err);
+                .for_each(async move |pkt| {
                 });
 
-            let stop_server = stop_server.clone();
-            //let on_disconnect = on_disconnect.clone();
+            let mut stop_server = stop_server.clone();
 
-            tokio::spawn(processor/*.select(sink).map(|_| ()).map_err(|(err, _)| err)*/.then(move |_| {
+            let proc_mapped = processor/*.select(sink).map(|_| ()).map_err(|(err, _)| err)*/.then(move |_| {
                 let on_disconnect = on_disconnect_2.clone();
                 println!("Done: {:?}", socket_addr);
                 if on_disconnect(socket_addr) {
-                    Box::new(stop_server.send(()).map(|_| ()).map_err(|_| ())) as Box<Future<Item = (), Error = ()> + Send>
+                    Pin::from(Box::new(future::ok(())))
+                    //Pin::from(Box::new(stop_server.lock().unwrap().send(()).map(|r| r.map_err(|_| ()))) as Box<Future<Output=Result<(), ()>> + Send>)
+                    //Box::new(stop_server.send(()).map(|_| ()).map_err(|_| ())) as Box<Future<Output=Result<(), ()>> + Send>
                 } else {
-                    Box::new(future::ok(())) as Box<Future<Item = (), Error = ()> + Send>
+                    Pin::from(Box::new(future::ok(())) as Box<Future<Output=Result<(), ()>> + Send>)
                 }
-            }))
+            }).map(|_| ());
+
+            //let on_disconnect = on_disconnect.clone();
+
+            //tokio::spawn();
+            future::ready(())
         });
 
-    tcp_server.select(server_done.into_future().map(|_| ()).map_err(|_| ()))
-        .map(|_| ()).map_err(|e| ())
+    future::select(tcp_server.map(|_| ()), server_done.into_future()).map(|_| ())
+        //.map(|_| ())
 }

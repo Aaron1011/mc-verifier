@@ -5,15 +5,18 @@ authors = ["Aaron Hill <aa1ronham@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-tokio = "0.1.16"
+#tokio = {git = "https://github.com/tokio-rs/tokio" }
+tokio = { path = "../tokio/tokio" }
 byteorder = "1.3.1"
 packet_macro = { path = "packet_macro" }
 lazy_static = "1.3.0"
 bytes = "0.4.12"
 openssl = "0.10.19"
 hex = "0.3.2"
-hyper = "0.12.25"
-hyper-tls = "0.3.1"
+#hyper = "0.12.25"
+#hyper = { path = "../hyper"}
+#hyper-tls = "0.3.1"
+#hyper-tls = { path = "../hyper-tls" }
 num-bigint = "0.2.2"
 #ssh2 = "0.3.3"
 ssh2 = {path = "../ssh2-rs"}
@@ -21,3 +24,4 @@ thrussh = "0.21.2"
 thrussh-keys = "0.11.9"
 nix = "0.13.0"
 libc = "0.2.55"
+futures-preview = { version = "=0.3.0-alpha.16", features = ["async-await", "nightly"] }

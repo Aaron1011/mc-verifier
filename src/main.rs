@@ -3,6 +3,8 @@ use std::net::SocketAddr;
 use mc_verifier::server_future;
 use std::alloc::System;
 
+use futures::FutureExt;
+
 #[global_allocator]
 static A: System = System;
 
@@ -12,5 +14,5 @@ fn main() {
     tokio::run(server_future(addr, |addr| {
         // Keep accepting clients
         false
-    }));
+    }).map(|_| ()));
 }
