@@ -4,6 +4,11 @@ use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
 use std::io::{Read, Write, ErrorKind};
 use std::fmt::Debug;
 use std::any::Any;
+use std::pin::Pin;
+use std::future::Future;
+use crate::Encryption;
+
+pub type HandlerRet = Option<Pin<Box<dyn Future<Output = Result<Encryption, std::io::Error>> + Send>>>;
 
 #[derive(Copy, Clone, Default, Debug)]
 pub struct VarInt {
@@ -339,9 +344,9 @@ pub trait Packet: Readable + Writeable + Debug + Send {
 
     fn get_id(&self) -> VarInt;
 
-    fn handle_client(&self, handler: &mut dyn crate::packet::ClientHandler);
+    fn handle_client(&self, handler: &mut dyn crate::packet::ClientHandler) -> HandlerRet;
 
-    fn handle_server(&self, handler: &mut dyn crate::packet::ServerHandler);
+    fn handle_server(&self, handler: &mut dyn crate::packet::ServerHandler) -> HandlerRet;
 
 
     // This is actually serialized as a VarInt,

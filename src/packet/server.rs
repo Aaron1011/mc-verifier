@@ -24,7 +24,7 @@ packets!{[
 ]}
 
 pub trait ServerHandler {
-    fn on_encryptionrequest(&mut self, request: &EncryptionRequest);
-    fn on_loginsuccess(&mut self, pkt: &LoginSuccess);
-    fn on_logindisconnect(&mut self, pkt: &LoginDisconnect);
+    fn on_encryptionrequest(&mut self, request: &EncryptionRequest) -> HandlerRet;
+    fn on_loginsuccess(&mut self, pkt: &LoginSuccess) -> HandlerRet;
+    fn on_logindisconnect(&mut self, pkt: &LoginDisconnect) -> HandlerRet;
 }

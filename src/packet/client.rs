@@ -32,9 +32,9 @@ packets!{[
 
 
 pub trait ClientHandler {
-    fn on_handshake(&mut self, handshake: &Handshake);
-    fn on_loginstart(&mut self, login_start: &LoginStart);
-    fn on_encryptionresponse(&mut self, response: &EncryptionResponse);
+    fn on_handshake(&mut self, handshake: &Handshake) -> HandlerRet;
+    fn on_loginstart(&mut self, login_start: &LoginStart) -> HandlerRet;
+    fn on_encryptionresponse(&mut self, response: &EncryptionResponse) -> HandlerRet;
 }
 
 

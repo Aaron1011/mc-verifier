@@ -201,21 +201,21 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
     let handler_invoke = match packet_side.as_str() {
         "Client" => quote! { 
 
-            fn handle_client(&self, handler: &mut crate::packet::ClientHandler) {
+            fn handle_client(&self, handler: &mut crate::packet::ClientHandler) -> crate::packet::HandlerRet {
                 #invoke
             }
 
-            fn handle_server(&self, handler: &mut crate::packet::ServerHandler) {
+            fn handle_server(&self, handler: &mut crate::packet::ServerHandler) -> crate::packet::HandlerRet {
                 unreachable!()
             }
         },
         "Server" => quote! {
 
-            fn handle_client(&self, handler: &mut crate::packet::ClientHandler) {
+            fn handle_client(&self, handler: &mut crate::packet::ClientHandler) -> crate::packet::HandlerRet {
                 unreachable!()
             }
 
-            fn handle_server(&self, handler: &mut crate::packet::ServerHandler) {
+            fn handle_server(&self, handler: &mut crate::packet::ServerHandler) -> crate::packet::HandlerRet {
                 #invoke
             }
 

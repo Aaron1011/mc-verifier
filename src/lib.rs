@@ -105,17 +105,16 @@ impl PacketCodec {
     }
 }
 
-struct Encryption {
+pub struct Encryption {
     encrypt: Crypter,
     decrypt: Crypter,
     block_size: usize
 }
 
-type CryptoFuture = Option<Pin<Box<dyn Future<Output = Result<Encryption, std::io::Error>> + Send>>>;
 
 struct SimpleHandler {
     result: Vec<Box<dyn Packet>>,
-    crypto_future: CryptoFuture,
+    //crypto_future: CryptoFuture,
     public_key: Option<PKey<Private>>,
     encoded_public_key: Option<Vec<u8>>,
     verify_token: Option<[u8; 4]>,
@@ -132,7 +131,6 @@ impl SimpleHandler {
             public_key: None,
             encoded_public_key: None,
             verify_token: None,
-            crypto_future: None,
             username: None,
             server_id,
             should_disconnect: false
@@ -168,11 +166,12 @@ fn convert_hyper_err(err: hyper::error::Error) -> std::io::Error {
 
 impl ClientHandler for SimpleHandler {
 
-    fn on_handshake(&mut self, handshake: &Handshake) {
+    fn on_handshake(&mut self, handshake: &Handshake) -> HandlerRet {
         println!("Handshake handler: {:?}", handshake);
+        None
     }
 
-    fn on_loginstart(&mut self, login_start: &LoginStart) {
+    fn on_loginstart(&mut self, login_start: &LoginStart) -> HandlerRet {
         println!("LoginStart handler: {:?}", login_start);
 
         self.username = Some(login_start.name.clone());
@@ -188,9 +187,10 @@ impl ClientHandler for SimpleHandler {
             pub_key: ByteArray::new(self.encoded_public_key.clone().unwrap()),
             verify_token: ByteArray::new(verify_token.to_vec())
         }));
+        None
     }
 
-    fn on_encryptionresponse(&mut self, response: &EncryptionResponse) {
+    fn on_encryptionresponse(&mut self, response: &EncryptionResponse) -> HandlerRet {
         println!("Decrypting encryption response...");
 
         let rsa = self.public_key.as_ref().unwrap().rsa().unwrap();
@@ -231,8 +231,13 @@ impl ClientHandler for SimpleHandler {
 
         println!("Sending request: {:?}", uri);
 
+        self.result.push(Box::new(LoginDisconnect {
+            reason: "{\"text\": \"Successfully authenticated!\"}".to_string()
+        }));
+        self.should_disconnect = true;
 
-        self.crypto_future = Some(Pin::from(Box::new(client.get(uri).compat()
+
+        Some(Pin::from(Box::new(client.get(uri).compat()
             .map(|r| r.map_err(convert_hyper_err))
             .and_then(async move |res| {
 
@@ -263,12 +268,7 @@ impl ClientHandler for SimpleHandler {
                 ).unwrap();
                 Ok(Encryption { encrypt, decrypt, block_size: Cipher::aes_128_cfb8().block_size() })
 
-            }))));
-
-        self.result.push(Box::new(LoginDisconnect {
-            reason: "{\"text\": \"Successfully authenticated!\"}".to_string()
-        }));
-        self.should_disconnect = true;
+            }))))
     }
 }
 
@@ -339,7 +339,7 @@ impl Decoder for PacketCodec {
 }
 
 async fn handle_packet(packets: Vec<Result<Box<dyn Packet>, std::io::Error>>,
-                       crypto_future_opt: CryptoFuture,
+                       crypto_future_opt: HandlerRet,
                        crypto: Arc<Mutex<Option<Encryption>>>, addr: SocketAddr,
                        tx: Sender<Result<Box<dyn Packet>, std::io::Error>>,
                        on_disconnect: Arc<Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>>,
@@ -422,12 +422,11 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                 reader
                     .for_each(|pkt| {
                         println!("Got packet: {:?}", pkt);
-                        pkt.unwrap().handle_client(&mut handler);
+                        let ret = pkt.unwrap().handle_client(&mut handler);
                         let packets: Vec<Result<Box<dyn Packet>, std::io::Error>> = handler.result.drain(..).map(|p| Ok(p)).collect();
-                        let crypto_future_opt = handler.crypto_future.take();
 
 
-                        handle_packet(packets, crypto_future_opt, crypto.clone(), addr, tx.clone(), on_disconnect.clone(), stop_server_new.clone(), handler.should_disconnect
+                        handle_packet(packets, ret, crypto.clone(), addr, tx.clone(), on_disconnect.clone(), stop_server_new.clone(), handler.should_disconnect
                                       ).map(|r| r.unwrap())
                     }).await;
 
