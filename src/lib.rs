@@ -67,8 +67,7 @@ impl futures01::future::Executor<Box<dyn futures01::Future<Item = (), Error = ()
 
 struct PacketCodec {
     state: u64,
-    encryption: Arc<Mutex<Option<Encryption>>>,
-    real_encryption: Option<Encryption>
+    encryption: Option<Encryption>
 }
 
 #[derive(Debug)]
@@ -78,8 +77,13 @@ enum Response {
 }
 
 impl PacketCodec {
-    fn new(enc: Arc<Mutex<Option<Encryption>>>) -> PacketCodec {
-        PacketCodec { state: 0, encryption: enc, real_encryption: None }
+    fn new() -> PacketCodec {
+        PacketCodec { state: 0, encryption: None }
+    }
+
+    pub fn set_encryption(&mut self, enc: Encryption) {
+        assert!(self.encryption.is_none());
+        self.encryption = Some(enc);
     }
 
     fn encrypt(&mut self, packet: Box<dyn Packet>, dst: &mut BytesMut) {
@@ -88,7 +92,7 @@ impl PacketCodec {
         self.encode_raw(packet, &mut raw);
 
 
-        let enc = self.real_encryption.as_mut().unwrap();
+        let enc = self.encryption.as_mut().unwrap();
 
         let mut ciphertext = vec![0; raw.len() + enc.block_size];
 
@@ -299,16 +303,10 @@ impl Encoder for PacketCodec {
     type Error = std::io::Error;
 
     fn encode(&mut self, packet: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        if self.real_encryption.is_some() {
-            self.encrypt(packet, dst);
+        if self.encryption.is_some() {
+            self.encrypt(packet, dst)
         } else {
-            let enc = self.encryption.lock().unwrap().take();
-            if enc.is_some() {
-                self.real_encryption = enc;
-                self.encrypt(packet, dst)
-            } else {
-                self.encode_raw(packet, dst)
-            }
+            self.encode_raw(packet, dst)
         }
         Ok(())
     }
@@ -360,11 +358,9 @@ impl Decoder for PacketCodec {
     }
 }
 
-async fn handle_packet(
+/*async fn handle_packet(
                        output: &mut (Sink<Box<dyn Packet + Send>, SinkError=std::io::Error> + Send + Unpin),
                        handler_ret: HandlerRet,
-                       crypto: Arc<Mutex<Option<Encryption>>>, addr: SocketAddr,
-                       mut tx: Sender<Response>,
                        on_disconnect: Arc<Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>>,
                        stop_server: Arc<Sender<()>>,
                        ) -> Result<Option<AuthedUser>, Box<dyn Error>> {
@@ -404,7 +400,7 @@ async fn handle_packet(
     }
 
     done.map_err(|e| Box::new(e) as Box<std::error::Error>)
-}
+}*/
 
 
 
@@ -433,14 +429,9 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
 
                 println!("Got connection: {:?}", socket_addr);
 
-                let crypto: Arc<Mutex<Option<Encryption>>> = Arc::new(Mutex::new(None));
-                let codec = PacketCodec::new(crypto.clone());
+                let codec = PacketCodec::new();
 
-                let framed = Framed::new(socket, codec);
-
-
-                let (mut writer, mut reader) = framed.split();
-                let (tx, mut rx) = channel(10);
+                let mut framed = Framed::new(socket, codec);
 
                 /*tokio::spawn(async move {
                     while let Some(r) = rx.next().await {
@@ -467,15 +458,35 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                 let on_disconnect_new = on_disconnect.clone();
 
 
-                while let Some(pkt) = reader.next().await {
+                while let Some(pkt) = framed.next().await {
                     println!("Got packet: {:?}", pkt);
-                    let ret = pkt.unwrap().handle_client(&mut handler);
-                    let res = handle_packet(
-                        &mut writer, ret, crypto.clone(), addr, tx.clone(), on_disconnect.clone(), stop_server_new.clone()
-                    ).map(|r| r.unwrap()).await;
+                    let mut ret = pkt.unwrap().handle_client(&mut handler);
 
-                    println!("Got user res: {:?}", res);
-                    if let Some(user) = res {
+                    let mut user_res = None;
+
+                    if let Some(c) = ret.as_mut() {
+                        let mut res = c.await.unwrap();
+                        if let Some(enc) = res.encryption {
+                            framed.codec_mut().set_encryption(enc);
+                        }
+
+                        for packet in res.packets {
+                            framed.send(packet).await.unwrap();
+                        }
+                        if (res.done.is_err() || res.done.as_ref().unwrap().is_some()) && on_disconnect(addr) {
+                            println!("Stopping for real!");
+                            let mut inner = (*stop_server).clone();
+                            inner.send(()).await.unwrap();
+                        }
+                        user_res = res.done.map_err(|e| Box::new(e) as Box<std::error::Error>).unwrap();
+                    }
+
+                    /*let res = handle_packet(
+                        &mut framed, ret, addr, on_disconnect.clone(), stop_server_new.clone()
+                    ).map(|r| r.unwrap()).await*/;
+
+                    println!("Got user res: {:?}", user_res);
+                    if let Some(user) = user_res {
                         user_tx.send(user).unwrap();
                         break;
                     }
