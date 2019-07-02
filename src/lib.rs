@@ -325,22 +325,22 @@ impl Decoder for PacketCodec {
     }
 }
 
-async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Rc<RefCell<SimpleHandler>>,
+async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Arc<Mutex<SimpleHandler>>,
                        crypto: Arc<Mutex<Option<Encryption>>>, addr: SocketAddr,
                        tx: Sender<Result<Box<Packet>, std::io::Error>>,
                        on_disconnect: Arc<Box<Fn(SocketAddr) -> bool + Send + Sync + 'static>>) {
     let handler = handler.clone();
-    pkt.unwrap().handle_client(&mut *handler.borrow_mut());
+    pkt.unwrap().handle_client(&mut *handler.lock().unwrap());
 
-    let packets: Vec<Box<Packet>> = handler.borrow_mut().result.drain(..).collect();
-    let crypto_future_opt = handler.borrow_mut().crypto_future.take();
+    let packets: Vec<Box<Packet>> = handler.lock().unwrap().result.drain(..).collect();
+    let crypto_future_opt = handler.lock().unwrap().crypto_future.take();
     let crypto = crypto.clone();
 
 
     let addr = addr.clone();
     let mut new_tx = tx.clone();
     //let on_disconnect = on_disconnect.clone();
-    let should_shutdown = handler.borrow().should_disconnect;
+    let should_shutdown = handler.lock().unwrap().should_disconnect;
 
     let c = crypto_future_opt.unwrap().await;
     *crypto.lock().unwrap() = Some(c.unwrap());
@@ -402,7 +402,7 @@ async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Rc<Ref
 
 }
 
-pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: SocketAddr, on_disconnect: F) -> impl Future<Output = ()> {
+pub fn server_future(addr: SocketAddr, on_disconnect: Box<Fn(SocketAddr) -> bool + Send + Sync + 'static>) -> impl Future<Output = ()> {
     //let a: crate::packet::Packet = panic!();
     let listener = TcpListener::bind(&addr).expect("Unable to bind TCP listener!");
     let on_disconnect = Arc::new(on_disconnect);
@@ -415,6 +415,9 @@ pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: So
         .for_each(move |socket| {
             let socket = socket.unwrap();
             let socket_addr = socket.peer_addr().unwrap();
+
+            println!("Got connection: {:?}", socket_addr);
+
             let crypto: Arc<Mutex<Option<Encryption>>> = Arc::new(Mutex::new(None));
             let codec = PacketCodec::new(crypto.clone());
 
@@ -438,18 +441,19 @@ pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: So
             tokio::spawn(sink);
 
 
-            let mut handler = Rc::new(RefCell::new(SimpleHandler::new("".to_string())));
-            let on_disconnect = Rc::new(on_disconnect);
+            let mut handler = Arc::new(Mutex::new(SimpleHandler::new("".to_string())));
             //reader.shutdown();
 
             let processor = reader
-                .for_each(async move |pkt| {
+                .for_each(move |pkt| {
+                    println!("Got packet: {:?}", pkt);
+                    handle_packet(pkt, handler.clone(), crypto.clone(), addr, tx.clone(), on_disconnect.clone())
                 });
 
             let mut stop_server = stop_server.clone();
 
             let proc_mapped = processor/*.select(sink).map(|_| ()).map_err(|(err, _)| err)*/.then(move |_| {
-                let on_disconnect = on_disconnect_2.clone();
+                /*let on_disconnect = on_disconnect_2.clone();
                 println!("Done: {:?}", socket_addr);
                 if on_disconnect(socket_addr) {
                     Pin::from(Box::new(future::ok(())))
@@ -457,12 +461,13 @@ pub fn server_future<F: Fn(SocketAddr) -> bool + Send + Sync + 'static>(addr: So
                     //Box::new(stop_server.send(()).map(|_| ()).map_err(|_| ())) as Box<Future<Output=Result<(), ()>> + Send>
                 } else {
                     Pin::from(Box::new(future::ok(())) as Box<Future<Output=Result<(), ()>> + Send>)
-                }
+                }*/
+                future::ready(())
             }).map(|_| ());
 
             //let on_disconnect = on_disconnect.clone();
 
-            //tokio::spawn();
+            tokio::spawn(proc_mapped);
             future::ready(())
         });
 
