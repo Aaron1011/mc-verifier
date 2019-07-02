@@ -2,7 +2,7 @@ pub mod client;
 pub mod server;
 mod types;
 
-use std::future::Future;
+
 
 pub use types::{AuthedUser, HandlerRet, HandlerAction, Packet, PacketState, Side, Readable, Writeable, VarInt, ReadResult, ReadErr, ParsedPacket, ByteArray};
 pub use client::ClientHandler;
@@ -11,9 +11,9 @@ pub use server::ServerHandler;
 use std::io::Read;
 use std::collections::HashMap;
 
-use crate::Encryption;
 
-use std::pin::Pin;
+
+
 
 
 pub fn parse_packet(handlers: &HashMap<u64, Box<dyn Fn(&[u8]) -> ParsedPacket + Sync + Send>>, mut data: &[u8]) -> ParsedPacket {

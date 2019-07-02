@@ -18,7 +18,7 @@ use openssl::sha::Sha1;
 use openssl::symm::{Cipher, Mode, Crypter};
 
 use futures::prelude::*;
-use futures::stream;
+
 
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::Sender;
@@ -209,7 +209,7 @@ impl ClientHandler for SimpleHandler {
         });
 
 
-        Some(Pin::from(Box::new(gen) as Box<Future<Output = Result<HandlerAction, std::io::Error>> + Send>))
+        Some(Pin::from(Box::new(gen) as Box<dyn Future<Output = Result<HandlerAction, std::io::Error>> + Send>))
     }
 
     fn on_encryptionresponse(&mut self, response: &EncryptionResponse) -> HandlerRet {
@@ -358,12 +358,12 @@ impl Decoder for PacketCodec {
     }
 }
 
-pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>) -> impl Stream<Item = Result<AuthedUser, Box<Error>>> {
+pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>) -> impl Stream<Item = Result<AuthedUser, Box<dyn Error>>> {
     //let a: crate::packet::Packet = panic!();
     let listener = TcpListener::bind(&addr).expect("Unable to bind TCP listener!");
     let on_disconnect = Arc::new(on_disconnect);
 
-    let (stop_server, mut server_done) = channel::<()>(1);
+    let (stop_server, server_done) = channel::<()>(1);
     let stop_server = Arc::new(stop_server);
     let stop_server_new = stop_server.clone();
 
@@ -375,7 +375,7 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
             let stop_server = stop_server_new.clone();
 
 
-            let (mut user_tx, mut user_rx) = oneshot::channel();
+            let (user_tx, user_rx) = oneshot::channel();
 
             let proc_fut = async move {
                 let socket = socket.unwrap();
@@ -389,7 +389,7 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
 
 
                 let mut handler = SimpleHandler::new("".to_string());
-                let stop_server_new = stop_server.clone();
+                let _stop_server_new = stop_server.clone();
 
                 let on_disconnect_new = on_disconnect.clone();
 
@@ -401,7 +401,7 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                     let mut user_res = None;
 
                     if let Some(c) = ret.as_mut() {
-                        let mut res = c.await.unwrap();
+                        let res = c.await.unwrap();
                         if let Some(enc) = res.encryption {
                             framed.codec_mut().set_encryption(enc);
                         }
@@ -414,7 +414,7 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                             let mut inner = (*stop_server).clone();
                             inner.send(()).await.unwrap();
                         }
-                        user_res = res.done.map_err(|e| Box::new(e) as Box<std::error::Error>).unwrap();
+                        user_res = res.done.map_err(|e| Box::new(e) as Box<dyn std::error::Error>).unwrap();
                     }
 
                     /*let res = handle_packet(

@@ -4,7 +4,7 @@ use futures::StreamExt;
 use mc_verifier::server_stream;
 use std::alloc::System;
 
-use futures::FutureExt;
+
 
 #[global_allocator]
 static A: System = System;
