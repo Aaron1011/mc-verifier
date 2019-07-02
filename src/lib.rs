@@ -4,6 +4,8 @@
 
 use std::error::Error;
 
+use futures::compat::{Future01CompatExt, Stream01CompatExt};
+
 use openssl::rsa::{Rsa, Padding};
 use openssl::pkey::Private;
 use openssl::pkey::PKey;
@@ -41,7 +43,7 @@ use std::io::ErrorKind;
 
 use std::future::Future;
 
-//use hyper_tls::HttpsConnector;
+use hyper_tls::HttpsConnector;
 
 pub mod packet;
 
@@ -49,7 +51,7 @@ use crate::packet::*;
 use crate::packet::client::*;
 use crate::packet::server::*;
 
-//use hyper::Client;
+use hyper::Client;
 
 
 struct PacketCodec {
@@ -106,7 +108,7 @@ struct Encryption {
 
 struct SimpleHandler {
     result: Vec<Box<Packet>>,
-    crypto_future: Option<Pin<Box<Future<Output = Result<Encryption, std::io::Error>> + Send + Unpin>>>,
+    crypto_future: Option<Pin<Box<Future<Output = Result<Encryption, std::io::Error>> + Send>>>,
     public_key: Option<PKey<Private>>,
     encoded_public_key: Option<Vec<u8>>,
     verify_token: Option<[u8; 4]>,
@@ -153,9 +155,9 @@ impl SimpleHandler {
     }
 }
 
-/*fn convert_hyper_err(err: hyper::error::Error) -> std::io::Error {
+fn convert_hyper_err(err: hyper::error::Error) -> std::io::Error {
     std::io::Error::new(ErrorKind::Other, err)
-}*/
+}
 
 impl ClientHandler for SimpleHandler {
 
@@ -215,23 +217,25 @@ impl ClientHandler for SimpleHandler {
         let hash = self.server_hash(&secret_key);
 
         // 4 is number of blocking DNS threads
-        /*let https = HttpsConnector::new(4).unwrap();
+        let https = HttpsConnector::new(4).unwrap();
         let client = Client::builder().build::<_, hyper::Body>(https);
         let uri = format!("https://sessionserver.mojang.com/session/minecraft/hasJoined?username={}&serverId={}", self.username.as_ref().unwrap(), &hash)
             .parse().unwrap();
 
-        println!("Sending request: {:?}", uri);*/
+        println!("Sending request: {:?}", uri);
 
 
-        /*self.crypto_future = Some(Box::new(client.get(uri)
-            .and_then(move |res| {
+        self.crypto_future = Some(Pin::from(Box::new(client.get(uri).compat()
+            .and_then(async move |res| {
 
                 let secret_key = secret_key.clone();
                 println!("Got response: {:?}", res);
 
-                res.into_body().fold(vec![], |mut acc, chunk| {
-                    acc.extend_from_slice(&chunk);
-                    futures::future::ok::<Vec<u8>, hyper::error::Error>(acc)
+                let body = res.into_body().compat();
+
+                Ok(body.fold(vec![], |mut acc, chunk| {
+                    acc.extend_from_slice(&chunk.unwrap());
+                    future::ready(acc)
                 }).map(|v| String::from_utf8(v).unwrap())
                     .map(move |data| {
                         println!("Got body: {:?}", data);
@@ -250,9 +254,9 @@ impl ClientHandler for SimpleHandler {
                             Some(&secret_key)
                         ).unwrap();
                         Encryption { encrypt, decrypt, block_size: Cipher::aes_128_cfb8().block_size() }
-                    })
+                    }).await)
 
-            }).map_err(convert_hyper_err)));*/
+            }).map_err(convert_hyper_err))));
 
         self.result.push(Box::new(LoginDisconnect {
             reason: "{\"text\": \"Successfully authenticated!\"}".to_string()

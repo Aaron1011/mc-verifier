@@ -61,7 +61,7 @@ pub fn packets(input: TokenStream) -> proc_macro::TokenStream {
                     boxed: Box::new(pkt.clone()),
                     any: Box::new(pkt.clone())
                 }
-            }) as Box<Fn(&[u8]) -> crate::packet::ParsedPacket + Sync>
+            }) as Box<Fn(&[u8]) -> crate::packet::ParsedPacket + Sync + Send>
         };
         let insert_line = quote! {
             map.insert(#handler_id, #handler_fn);
@@ -81,7 +81,7 @@ pub fn packets(input: TokenStream) -> proc_macro::TokenStream {
     TokenStream::from(quote! {
         use lazy_static::lazy_static;
         lazy_static! {
-            pub static ref HANDLERS: [::std::collections::HashMap<u64, Box<Fn(&[u8]) -> ParsedPacket + Sync>>; 4] = {
+            pub static ref HANDLERS: [::std::collections::HashMap<u64, Box<Fn(&[u8]) -> ParsedPacket + Sync + Send>>; 4] = {
                 [
                     {
                         let mut map = ::std::collections::HashMap::new();
