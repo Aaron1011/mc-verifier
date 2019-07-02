@@ -21,7 +21,6 @@ use futures::prelude::*;
 
 
 use tokio::sync::mpsc::channel;
-use tokio::sync::mpsc::Sender;
 use tokio::net::TcpListener;
 use tokio::codec::{Decoder, Encoder, Framed};
 use bytes::BytesMut;
@@ -42,7 +41,6 @@ use std::pin::Pin;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::io::ErrorKind;
 
 use std::future::Future;
 
@@ -68,12 +66,6 @@ impl futures01::future::Executor<Box<dyn futures01::Future<Item = (), Error = ()
 struct PacketCodec {
     state: u64,
     encryption: Option<Encryption>
-}
-
-#[derive(Debug)]
-enum Response {
-    Packet(Box<dyn Packet + Send>),
-    Shutdown(Sender<()>)
 }
 
 impl PacketCodec {
@@ -123,7 +115,7 @@ impl PacketCodec {
 
 pub struct Encryption {
     encrypt: Crypter,
-    decrypt: Crypter,
+    _decrypt: Crypter,
     block_size: usize
 }
 
@@ -169,10 +161,6 @@ impl SimpleHandler {
         let int = BigInt::from_signed_bytes_be(&hash);
         int.to_str_radix(16)
     }
-}
-
-fn convert_hyper_err(err: hyper::error::Error) -> std::io::Error {
-    std::io::Error::new(ErrorKind::Other, err)
 }
 
 impl ClientHandler for SimpleHandler {
@@ -283,7 +271,7 @@ impl ClientHandler for SimpleHandler {
                 &secret_key,
                 Some(&secret_key)
             ).unwrap();
-            let enc = Encryption { encrypt, decrypt, block_size: Cipher::aes_128_cfb8().block_size() };
+            let enc = Encryption { encrypt, _decrypt: decrypt, block_size: Cipher::aes_128_cfb8().block_size() };
             let packets = vec![Box::new(LoginDisconnect {
                 reason: object! {
                     "text" => format!("Successfully authenticated: {}", data)
