@@ -330,10 +330,15 @@ async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Arc<Mu
                        tx: Sender<Result<Box<Packet>, std::io::Error>>,
                        on_disconnect: Arc<Box<Fn(SocketAddr) -> bool + Send + Sync + 'static>>) {
     let handler = handler.clone();
+    let crypto_future_opt = handler.lock().unwrap().crypto_future.take();
+    if let Some(c) = crypto_future_opt {
+        let c = c.await;
+        *crypto.lock().unwrap() = Some(c.unwrap());
+    }
+
     pkt.unwrap().handle_client(&mut *handler.lock().unwrap());
 
-    let packets: Vec<Box<Packet>> = handler.lock().unwrap().result.drain(..).collect();
-    let crypto_future_opt = handler.lock().unwrap().crypto_future.take();
+    let packets: Vec<Result<Box<Packet>, std::io::Error>> = handler.lock().unwrap().result.drain(..).map(|p| Ok(p)).collect();
     let crypto = crypto.clone();
 
 
@@ -342,15 +347,15 @@ async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Arc<Mu
     //let on_disconnect = on_disconnect.clone();
     let should_shutdown = handler.lock().unwrap().should_disconnect;
 
-    let c = crypto_future_opt.unwrap().await;
-    *crypto.lock().unwrap() = Some(c.unwrap());
-
+    
     //let on_disconnect_new = on_disconnect.clone();
     println!("Sending: {:?}", packets);
 
-    let mut packet_stream = stream::iter(packets.into_iter().map(|p| Ok(p)));
+    let mut packet_stream = stream::iter(packets.into_iter());
+    //let mut packet_stream = stream::iter(vec![].into_iter());
 
     new_tx.send_all(&mut packet_stream).await;
+
         //.map(|_| ())
         //.map_err(|e| std::io::Error::new(ErrorKind::Other, e))
         //.then(move |_| {
@@ -363,42 +368,6 @@ async fn handle_packet(pkt: Result<Box<Packet>, std::io::Error>, handler: Arc<Mu
             } else {
                 //Pin::from(Box::new(future::ok(()))) 
             }
-
-
-    /*crypto_future_opt
-        .map(move |future| Pin::new(Box::new(future.map(move |c| {
-            *crypto.lock().unwrap() = Some(c.unwrap());
-            Ok(())
-        })) as Box<Future<Output = Result<(), std::io::Error>> + Send + Unpin>))
-        .unwrap_or_else(|| Pin::new(Box::new(futures::future::ok(()))))
-        .and_then(async move |_| {
-            let on_disconnect_new = on_disconnect.clone();
-            println!("Sending: {:?}", packets);
-
-            let mut packet_stream = stream::iter(packets.into_iter().map(|p| Ok(p)));
-
-            new_tx.send_all(&mut packet_stream).await;
-                //.map(|_| ())
-                //.map_err(|e| std::io::Error::new(ErrorKind::Other, e))
-                //.then(move |_| {
-                    if should_shutdown && on_disconnect(socket_addr) {
-                        println!("Stopping for real!");
-                        /*let res = Pin::from(Box::new(stop_server.lock().unwrap().send(()).map(|_| ())
-                            .then(|_|futures::future::err(std::io::Error::new(std::io::ErrorKind::Other, "Manual stop")))) as Box<Future<Output = Result<(), std::io::Error>> + Send>);
-                        res*/
-                        //Pin::from(Box::new(future::ok(())))
-                    } else {
-                        //Pin::from(Box::new(future::ok(()))) 
-                    }
-                    Ok(())
-                    //tokio::prelude::future::ok(())
-                //}).await;
-            //Ok(())
-
-        })
-    .map(|r| {
-        r.map_err(|e| eprintln!("IO Error: {:?}", e));
-    })*/
 
 }
 
@@ -447,21 +416,25 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<Fn(SocketAddr) -> bool
             let processor = reader
                 .for_each(move |pkt| {
                     println!("Got packet: {:?}", pkt);
+                    let handler = handler.clone();
+                    let crypto = crypto.clone();
+                    let addr = addr;
+                    let tx = tx.clone();
+                    let on_disconnect = on_disconnect.clone();
                     handle_packet(pkt, handler.clone(), crypto.clone(), addr, tx.clone(), on_disconnect.clone())
+                    //future::ready(())
                 });
 
             let mut stop_server = stop_server.clone();
 
             let proc_mapped = processor/*.select(sink).map(|_| ()).map_err(|(err, _)| err)*/.then(move |_| {
-                /*let on_disconnect = on_disconnect_2.clone();
+                let on_disconnect = on_disconnect_2.clone();
                 println!("Done: {:?}", socket_addr);
                 if on_disconnect(socket_addr) {
-                    Pin::from(Box::new(future::ok(())))
                     //Pin::from(Box::new(stop_server.lock().unwrap().send(()).map(|r| r.map_err(|_| ()))) as Box<Future<Output=Result<(), ()>> + Send>)
                     //Box::new(stop_server.send(()).map(|_| ()).map_err(|_| ())) as Box<Future<Output=Result<(), ()>> + Send>
                 } else {
-                    Pin::from(Box::new(future::ok(())) as Box<Future<Output=Result<(), ()>> + Send>)
-                }*/
+                }
                 future::ready(())
             }).map(|_| ());
 
