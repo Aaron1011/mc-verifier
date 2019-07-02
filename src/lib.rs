@@ -361,6 +361,7 @@ impl Decoder for PacketCodec {
 }
 
 async fn handle_packet(
+                       output: &mut (Sink<Box<dyn Packet + Send>, SinkError=std::io::Error> + Send + Unpin),
                        handler_ret: HandlerRet,
                        crypto: Arc<Mutex<Option<Encryption>>>, addr: SocketAddr,
                        mut tx: Sender<Response>,
@@ -378,7 +379,7 @@ async fn handle_packet(
         if let Some(enc) = res.encryption {
             *crypto.lock().unwrap() = Some(enc);
         }
-        packets = res.packets.drain(..).map(|p| Response::Packet(p)).collect();
+        packets = res.packets;
         done = res.done;
     }
 
@@ -390,9 +391,13 @@ async fn handle_packet(
     
     println!("Sending: {:?}", packets);
 
-    let mut packet_stream = stream::iter(packets.into_iter());
+    for packet in packets {
+        output.send(packet).await.unwrap();
+    }
 
-    tx.send_all(&mut packet_stream).await?;
+    //let mut packet_stream = stream::iter(packets.into_iter());
+
+    //tx.send_all(&mut packet_stream).await?;
 
     if (done.is_err() || done.as_ref().unwrap().is_some()) &&on_disconnect(addr) {
         println!("Stopping for real!");
@@ -439,7 +444,7 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                 let (mut writer, mut reader) = framed.split();
                 let (tx, mut rx) = channel(10);
 
-                tokio::spawn(async move {
+                /*tokio::spawn(async move {
                     while let Some(r) = rx.next().await {
                         match r {
                             Response::Packet(p) => writer.send(p).await.unwrap(),
@@ -448,7 +453,7 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                             }
                         }
                     }
-                });
+                });*/
 
                 //let sink = rx.forward(writer);
                 /*let sink = rx.for_each(async move |r| {
@@ -468,7 +473,7 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                     println!("Got packet: {:?}", pkt);
                     let ret = pkt.unwrap().handle_client(&mut handler);
                     let res = handle_packet(
-                        ret, crypto.clone(), addr, tx.clone(), on_disconnect.clone(), stop_server_new.clone()
+                        &mut writer, ret, crypto.clone(), addr, tx.clone(), on_disconnect.clone(), stop_server_new.clone()
                     ).map(|r| r.unwrap()).await;
 
                     println!("Got user res: {:?}", res);
