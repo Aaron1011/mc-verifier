@@ -233,6 +233,7 @@ impl ClientHandler for SimpleHandler {
 
 
         self.crypto_future = Some(Pin::from(Box::new(client.get(uri).compat()
+            .map(|r| r.map_err(convert_hyper_err))
             .and_then(async move |res| {
 
                 let secret_key = secret_key.clone();
@@ -240,30 +241,29 @@ impl ClientHandler for SimpleHandler {
 
                 let body = res.into_body().compat();
 
-                Ok(body.fold(vec![], |mut acc, chunk| {
+                let data = String::from_utf8(body.fold(vec![], |mut acc, chunk| {
                     acc.extend_from_slice(&chunk.unwrap());
                     future::ready(acc)
-                }).map(|v| String::from_utf8(v).unwrap())
-                    .map(move |data| {
-                        println!("Got body: {:?}", data);
+                }).await).expect("Failed to parse Mojang response");
 
-                        let encrypt = Crypter::new(
-                            Cipher::aes_128_cfb8(),
-                            Mode::Encrypt,
-                            &secret_key,
-                            Some(&secret_key) // IV and secret are the same in Minecraft
-                        ).unwrap();
+                println!("Got body: {:?}", data);
 
-                        let decrypt = Crypter::new(
-                            Cipher::aes_128_cfb8(),
-                            Mode::Decrypt,
-                            &secret_key,
-                            Some(&secret_key)
-                        ).unwrap();
-                        Encryption { encrypt, decrypt, block_size: Cipher::aes_128_cfb8().block_size() }
-                    }).await)
+                let encrypt = Crypter::new(
+                    Cipher::aes_128_cfb8(),
+                    Mode::Encrypt,
+                    &secret_key,
+                    Some(&secret_key) // IV and secret are the same in Minecraft
+                ).unwrap();
 
-            }).map_err(convert_hyper_err))));
+                let decrypt = Crypter::new(
+                    Cipher::aes_128_cfb8(),
+                    Mode::Decrypt,
+                    &secret_key,
+                    Some(&secret_key)
+                ).unwrap();
+                Ok(Encryption { encrypt, decrypt, block_size: Cipher::aes_128_cfb8().block_size() })
+
+            }))));
 
         self.result.push(Box::new(LoginDisconnect {
             reason: "{\"text\": \"Successfully authenticated!\"}".to_string()
@@ -342,7 +342,7 @@ async fn handle_packet(pkt: Result<Box<dyn Packet>, std::io::Error>, handler: Ar
                        crypto: Arc<Mutex<Option<Encryption>>>, addr: SocketAddr,
                        tx: Sender<Result<Box<dyn Packet>, std::io::Error>>,
                        on_disconnect: Arc<Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>>,
-                       _stop_server: Arc<Mutex<Sender<()>>>) -> Result<(), Box<dyn Error>> {
+                       stop_server: Arc<Sender<()>>) -> Result<(), Box<dyn Error>> {
 
     pkt.unwrap().handle_client(&mut *handler.lock().unwrap());
 
@@ -356,31 +356,26 @@ async fn handle_packet(pkt: Result<Box<dyn Packet>, std::io::Error>, handler: Ar
 
 
     let packets: Vec<Result<Box<dyn Packet>, std::io::Error>> = handler.lock().unwrap().result.drain(..).map(|p| Ok(p)).collect();
-    let _crypto = crypto.clone();
 
 
     let addr = addr.clone();
     let mut new_tx = tx.clone();
-    //let on_disconnect = on_disconnect.clone();
     let should_shutdown = handler.lock().unwrap().should_disconnect;
 
     
-    //let on_disconnect_new = on_disconnect.clone();
     println!("Sending: {:?}", packets);
 
     let mut packet_stream = stream::iter(packets.into_iter());
-    //let mut packet_stream = stream::iter(vec![].into_iter());
 
     new_tx.send_all(&mut packet_stream).await?;
 
     if should_shutdown && on_disconnect(addr) {
         println!("Stopping for real!");
-        //stop_server.lock().unwrap().send(())?;
-    } else {
+        let mut inner = (*stop_server).clone();
+        inner.send(()).await?;
     }
 
     Ok(())
-
 }
 
 pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>) -> impl Future<Output = ()> {
@@ -389,7 +384,7 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
     let on_disconnect = Arc::new(on_disconnect);
 
     let (stop_server, server_done) = channel::<()>(1);
-    let stop_server = Arc::new(Mutex::new(stop_server));
+    let stop_server = Arc::new(stop_server);
 
     let tcp_server = listener.incoming()
         //.map_err(|e| eprintln!("accept failed = {:?}", e))
@@ -440,7 +435,7 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                 let on_disconnect = on_disconnect_2.clone();
                 println!("Done: {:?}", socket_addr);
                 if on_disconnect(socket_addr) {
-                    let mut do_stop = stop_server.lock().unwrap().clone();
+                    let mut do_stop = (*stop_server).clone();
                     do_stop.send(()).map(|r| r.unwrap()).await;
                 }
             };
