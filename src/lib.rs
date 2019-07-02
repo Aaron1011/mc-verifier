@@ -384,8 +384,6 @@ async fn handle_packet(
     }
 
 
-
-
     let addr = addr.clone();
 
     
@@ -402,7 +400,7 @@ async fn handle_packet(
     if (done.is_err() || done.as_ref().unwrap().is_some()) &&on_disconnect(addr) {
         println!("Stopping for real!");
         let mut inner = (*stop_server).clone();
-        tx.send(Response::Shutdown(inner)).await.unwrap();
+        inner.send(()).await.unwrap();
     }
 
     done.map_err(|e| Box::new(e) as Box<std::error::Error>)

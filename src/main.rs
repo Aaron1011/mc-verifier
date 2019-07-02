@@ -13,7 +13,7 @@ fn main() {
     let addr = "127.0.0.1:25567".parse::<SocketAddr>().unwrap();
     println!("Running server on {:?}", addr);
     tokio::run(server_stream(addr, Box::new(|_addr| {
-        false
+        true
     })).for_each(|user| {
         println!("Main: Got user {:?}", user);
         futures::future::ready(())
