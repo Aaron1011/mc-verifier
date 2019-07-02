@@ -2,6 +2,8 @@
 
 #![feature(async_await)]
 
+#![deny(clippy::option_unwrap_used, clippy::result_unwrap_used)]
+
 use std::error::Error;
 
 use futures::compat::{Future01CompatExt, Stream01CompatExt, Compat};
@@ -84,7 +86,7 @@ impl PacketCodec {
         self.encode_raw(packet, &mut raw);
 
 
-        let enc = self.encryption.as_mut().unwrap();
+        let enc = self.encryption.as_mut().expect("Missing encrption!");
 
         let mut ciphertext = vec![0; raw.len() + enc.block_size];
 

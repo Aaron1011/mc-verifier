@@ -19,10 +19,6 @@ hyper = "0.12.25"
 hyper-tls = "0.3.1"
 #hyper-tls = { path = "../hyper-tls" }
 num-bigint = "0.2.2"
-#ssh2 = "0.3.3"
-ssh2 = {path = "../ssh2-rs"}
-thrussh = "0.21.2"
-thrussh-keys = "0.11.9"
 nix = "0.13.0"
 libc = "0.2.55"
 futures-preview = { version = "=0.3.0-alpha.16", features = ["async-await", "nightly", "compat"] }
