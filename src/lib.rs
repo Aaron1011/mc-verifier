@@ -41,7 +41,7 @@ use futures::TryFutureExt;
 use std::pin::Pin;
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::io::ErrorKind;
 
 use std::future::Future;
@@ -358,52 +358,6 @@ impl Decoder for PacketCodec {
     }
 }
 
-/*async fn handle_packet(
-                       output: &mut (Sink<Box<dyn Packet + Send>, SinkError=std::io::Error> + Send + Unpin),
-                       handler_ret: HandlerRet,
-                       on_disconnect: Arc<Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>>,
-                       stop_server: Arc<Sender<()>>,
-                       ) -> Result<Option<AuthedUser>, Box<dyn Error>> {
-
-
-    let mut packets = vec![];
-    let mut done = Ok(None);
-
-    println!("Got  ret: {:?}", handler_ret.is_some());
-    if let Some(c) = handler_ret {
-        let mut res = c.await?;
-        if let Some(enc) = res.encryption {
-            *crypto.lock().unwrap() = Some(enc);
-        }
-        packets = res.packets;
-        done = res.done;
-    }
-
-
-    let addr = addr.clone();
-
-    
-    println!("Sending: {:?}", packets);
-
-    for packet in packets {
-        output.send(packet).await.unwrap();
-    }
-
-    //let mut packet_stream = stream::iter(packets.into_iter());
-
-    //tx.send_all(&mut packet_stream).await?;
-
-    if (done.is_err() || done.as_ref().unwrap().is_some()) &&on_disconnect(addr) {
-        println!("Stopping for real!");
-        let mut inner = (*stop_server).clone();
-        inner.send(()).await.unwrap();
-    }
-
-    done.map_err(|e| Box::new(e) as Box<std::error::Error>)
-}*/
-
-
-
 pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>) -> impl Stream<Item = Result<AuthedUser, Box<Error>>> {
     //let a: crate::packet::Packet = panic!();
     let listener = TcpListener::bind(&addr).expect("Unable to bind TCP listener!");
@@ -432,24 +386,6 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                 let codec = PacketCodec::new();
 
                 let mut framed = Framed::new(socket, codec);
-
-                /*tokio::spawn(async move {
-                    while let Some(r) = rx.next().await {
-                        match r {
-                            Response::Packet(p) => writer.send(p).await.unwrap(),
-                            Response::Shutdown(mut s) => {
-                                s.send(()).await.map_err(|e| eprintln!("Other failed to shutdown: {:?}", e));
-                            }
-                        }
-                    }
-                });*/
-
-                //let sink = rx.forward(writer);
-                /*let sink = rx.for_each(async move |r| {
-                });
-
-
-                tokio::spawn(sink);*/
 
 
                 let mut handler = SimpleHandler::new("".to_string());
