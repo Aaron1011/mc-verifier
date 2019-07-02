@@ -12,7 +12,7 @@ pub type HandlerRet = Option<Pin<Box<dyn Future<Output = Result<HandlerAction, s
 
 pub struct HandlerAction {
     pub encryption: Option<Encryption>,
-    pub packets: Vec<Box<dyn Packet>>,
+    pub packets: Vec<Box<dyn Packet + Send>>,
     pub should_disconnect: bool
 }
 
@@ -23,7 +23,7 @@ pub struct VarInt {
 
 #[derive(Debug)]
 pub struct ParsedPacket {
-    pub boxed: Box<dyn Packet>,
+    pub boxed: Box<dyn Packet + Send>,
     pub any: Box<dyn Any>
 }
 

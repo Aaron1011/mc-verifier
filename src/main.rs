@@ -13,6 +13,6 @@ fn main() {
     println!("Running server on {:?}", addr);
     tokio::run(server_future(addr, Box::new(|_addr| {
         // Keep accepting clients
-        false
+        true
     })).map(|_| ()));
 }

@@ -67,13 +67,19 @@ struct PacketCodec {
     real_encryption: Option<Encryption>
 }
 
+#[derive(Debug)]
+enum Response {
+    Packet(Box<dyn Packet + Send>),
+    Shutdown(Sender<()>)
+}
+
 impl PacketCodec {
     fn new(enc: Arc<Mutex<Option<Encryption>>>) -> PacketCodec {
         PacketCodec { state: 0, encryption: enc, real_encryption: None }
     }
 
     fn encrypt(&mut self, packet: Box<dyn Packet>, dst: &mut BytesMut) {
-        println!("Encrypting!");
+        println!("Encrypting: {:?}", packet);
         let mut raw = BytesMut::with_capacity(dst.capacity());
         self.encode_raw(packet, &mut raw);
 
@@ -273,7 +279,7 @@ impl ClientHandler for SimpleHandler {
                     reason: object! {
                         "text" => format!("Successfully authenticated: {}", data)
                     }.to_string()
-                }) as Box<dyn Packet>];
+                }) as Box<dyn Packet + Send>];
 
                 Ok(HandlerAction {
                     encryption: Some(enc),
@@ -285,7 +291,7 @@ impl ClientHandler for SimpleHandler {
 }
 
 impl Encoder for PacketCodec {
-    type Item = Box<dyn Packet>;
+    type Item = Box<dyn Packet + Send>;
     type Error = std::io::Error;
 
     fn encode(&mut self, packet: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
@@ -305,7 +311,7 @@ impl Encoder for PacketCodec {
 }
 
 impl Decoder for PacketCodec {
-    type Item = Box<dyn Packet>;
+    type Item = Box<dyn Packet + Send>;
     type Error = std::io::Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -353,7 +359,7 @@ impl Decoder for PacketCodec {
 async fn handle_packet(
                        handler_ret: HandlerRet,
                        crypto: Arc<Mutex<Option<Encryption>>>, addr: SocketAddr,
-                       tx: Sender<Result<Box<dyn Packet>, std::io::Error>>,
+                       mut tx: Sender<Response>,
                        on_disconnect: Arc<Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>>,
                        stop_server: Arc<Sender<()>>,
                        ) -> Result<(), Box<dyn Error>> {
@@ -368,7 +374,7 @@ async fn handle_packet(
         if let Some(enc) = res.encryption {
             *crypto.lock().unwrap() = Some(enc);
         }
-        packets = res.packets.drain(..).map(|p| Ok(p)).collect();
+        packets = res.packets.drain(..).map(|p| Response::Packet(p)).collect();
         should_shutdown = res.should_disconnect;
     }
 
@@ -376,19 +382,18 @@ async fn handle_packet(
 
 
     let addr = addr.clone();
-    let mut new_tx = tx.clone();
 
     
     println!("Sending: {:?}", packets);
 
     let mut packet_stream = stream::iter(packets.into_iter());
 
-    new_tx.send_all(&mut packet_stream).await?;
+    tx.send_all(&mut packet_stream).await?;
 
     if should_shutdown && on_disconnect(addr) {
         println!("Stopping for real!");
         let mut inner = (*stop_server).clone();
-        inner.send(()).await?;
+        tx.send(Response::Shutdown(inner)).await?;
     }
 
     Ok(())
@@ -403,7 +408,6 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
     let stop_server = Arc::new(stop_server);
 
     let tcp_server = listener.incoming()
-        //.map_err(|e| eprintln!("accept failed = {:?}", e))
         .for_each(move |socket| {
             let on_disconnect = on_disconnect.clone();
             let stop_server = stop_server.clone();
@@ -420,17 +424,24 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                 let framed = Framed::new(socket, codec);
 
 
-                let (writer, reader) = framed.split();
-                let (tx, rx) = channel(10);
+                let (mut writer, reader) = framed.split();
+                let (tx, mut rx) = channel(10);
+
+                tokio::spawn(async move {
+                    while let Some(r) = rx.next().await {
+                        match r {
+                            Response::Packet(p) => writer.send(p).await.unwrap(),
+                            Response::Shutdown(mut s) => s.send(()).await.unwrap()
+                        }
+                    }
+                });
 
                 //let sink = rx.forward(writer);
-                let sink = rx.forward(writer)
-                    .map(|r| {
-                        r.unwrap()
-                    });
+                /*let sink = rx.for_each(async move |r| {
+                });
 
 
-                tokio::spawn(sink);
+                tokio::spawn(sink);*/
 
 
                 let mut handler = SimpleHandler::new("".to_string());
@@ -442,9 +453,6 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                     .for_each(|pkt| {
                         println!("Got packet: {:?}", pkt);
                         let ret = pkt.unwrap().handle_client(&mut handler);
-                        //let packets: Vec<Result<Box<dyn Packet>, std::io::Error>> = handler.result.drain(..).map(|p| Ok(p)).collect();
-
-
                         handle_packet(ret, crypto.clone(), addr, tx.clone(), on_disconnect.clone(), stop_server_new.clone()
                                       ).map(|r| r.unwrap())
                     }).await;
@@ -452,21 +460,17 @@ pub fn server_future(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                 println!("Done: {:?}", socket_addr);
                 if on_disconnect_new(socket_addr) {
                     let mut do_stop = (*stop_server).clone();
-                    do_stop.send(()).map(|r| r.unwrap()).await;
+                    // We don't care if we get an error - that
+                    // just means that we already tried to stop the server
+                    if let Err(e) = do_stop.send(()).await {
+                        eprintln!("Failed to shutdown: {:?}", e);
+                    }
                 }
             };
-
-
-
-            //let proc_mapped = processor/*.select(sink).map(|_| ()).map_err(|(err, _)| err)*/.then(move |_| {
-            //}).map(|_| ());
-
-            //let on_disconnect = on_disconnect.clone();
 
             tokio::spawn(proc_fut);
             future::ready(())
         });
 
     future::select(tcp_server.map(|_| ()), server_done.into_future()).map(|_| ())
-        //.map(|_| ())
 }
