@@ -8,6 +8,12 @@ use std::pin::Pin;
 use std::future::Future;
 use crate::Encryption;
 
+use openssl::sign::Verifier;
+use openssl::hash::MessageDigest;
+use openssl::pkey::PKey;
+
+const YGGDRASIL_KEY: &[u8] = include_bytes!("yggdrasil_session_pubkey.der");
+
 use uuid::Uuid;
 use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use base64_serde::base64_serde_type;
@@ -20,7 +26,7 @@ pub struct HandlerAction {
     pub done: Result<Option<AuthedUser>, Box<std::io::Error>>
 }
 
-use base64::{encode_config, STANDARD};
+use base64::STANDARD;
 base64_serde_type!(pub Base64Standard, STANDARD);
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,6 +55,17 @@ pub struct Property {
     pub value: String,
     #[serde(with = "Base64Standard")]
     pub signature: Vec<u8>
+}
+
+impl Property {
+    pub fn verify(&self) -> Result<bool, Box<dyn std::error::Error>> {
+        let encoded_value = base64::encode(&self.value);
+
+        let key = PKey::public_key_from_der(YGGDRASIL_KEY)?;
+        let mut verifier = Verifier::new(MessageDigest::sha1(), &key)?;
+        verifier.update(encoded_value.as_bytes())?;
+        Ok(verifier.verify(&self.signature)?)
+    }
 }
 
 #[derive(Copy, Clone, Default, Debug)]

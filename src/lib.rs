@@ -280,10 +280,17 @@ impl ClientHandler for SimpleHandler {
                 }.to_string()
             }) as Box<dyn Packet + Send>];
 
+            let user: AuthedUser = serde_json::from_str(&data)?;
+            for prop in &user.properties {
+                println!("Verifying: {:?}", prop);
+                assert!(prop.verify().expect("Error verifying property"))
+            }
+
+
             Ok(HandlerAction {
                 encryption: Some(enc),
                 packets,
-                done: Ok(Some(serde_json::from_str(&data)?))
+                done: Ok(Some(user))
             })
         })))
     }
