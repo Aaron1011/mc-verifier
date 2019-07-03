@@ -8,6 +8,10 @@ use std::pin::Pin;
 use std::future::Future;
 use crate::Encryption;
 
+use uuid::Uuid;
+use serde::{Serialize, Deserialize, Serializer, Deserializer};
+use base64_serde::base64_serde_type;
+
 pub type HandlerRet = Option<Pin<Box<dyn Future<Output = Result<HandlerAction, std::io::Error>> + Send>>>;
 
 pub struct HandlerAction {
@@ -16,9 +20,35 @@ pub struct HandlerAction {
     pub done: Result<Option<AuthedUser>, Box<std::io::Error>>
 }
 
-#[derive(Debug)]
+use base64::{encode_config, STANDARD};
+base64_serde_type!(pub Base64Standard, STANDARD);
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AuthedUser {
-    pub body: String
+    pub id: Uuid,
+    pub name: String,
+    pub properties: Vec<Property>
+}
+
+
+mod base64_string {
+    pub fn serialize<S>(string: &String, serializer: S) -> ::std::result::Result<S::Ok, S::Error> where S: super::Serializer {
+        super::Base64Standard::serialize(string.as_bytes(), serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<String, D::Error> where D: super::Deserializer<'de> {
+        Ok(String::from_utf8(super::Base64Standard::deserialize(deserializer)?).unwrap())
+    }
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Property {
+    pub name: String,
+    #[serde(with = "base64_string")]
+    pub value: String,
+    #[serde(with = "Base64Standard")]
+    pub signature: Vec<u8>
 }
 
 #[derive(Copy, Clone, Default, Debug)]

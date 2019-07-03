@@ -283,7 +283,7 @@ impl ClientHandler for SimpleHandler {
             Ok(HandlerAction {
                 encryption: Some(enc),
                 packets,
-                done: Ok(Some(AuthedUser { body: data }))
+                done: Ok(Some(serde_json::from_str(&data)?))
             })
         })))
     }

@@ -25,3 +25,8 @@ futures-preview = { version = "=0.3.0-alpha.16", features = ["async-await", "nig
 futures01 = { package = "futures", version = "0.1.28" }
 json = "0.11.14"
 stream-cancel = "0.4.4"
+uuid = {version = "0.7.4", features = ["serde"]}
+serde = {version = "1.0.94", features = ["derive"]}
+serde_json = "1.0.40"
+base64-serde = "0.3.2"
+base64 = "0.10.1"
