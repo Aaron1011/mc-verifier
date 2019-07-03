@@ -8,6 +8,7 @@ edition = "2018"
 #tokio = {git = "https://github.com/tokio-rs/tokio" }
 tokio = { path = "../tokio/tokio" }
 tokio-executor = { path = "../tokio/tokio-executor" }
+tokio-tcp = { path = "../tokio/tokio-tcp", features = ["incoming"] }
 byteorder = "1.3.1"
 packet_macro = { path = "packet_macro" }
 lazy_static = "1.3.0"
