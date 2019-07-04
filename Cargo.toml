@@ -31,3 +31,6 @@ serde = {version = "1.0.94", features = ["derive"]}
 serde_json = "1.0.40"
 base64-serde = "0.3.2"
 base64 = "0.10.1"
+termimage = "0.3.2"
+image = "0.10.4"
+reqwest = "0.9.18"
