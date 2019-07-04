@@ -6,9 +6,11 @@ use futures::StreamExt;
 use mc_verifier::server_stream;
 use std::alloc::System;
 
-use reqwest::r#async::{Chunk, Client};
 use termimage;
 use image;
+
+use hyper_tls::HttpsConnector;
+use hyper::Client;
 
 use mc_verifier::ExecutorCompat;
 
@@ -21,6 +23,8 @@ use futures::prelude::*;
 static A: System = System;
 
 fn main() {
+    env_logger::init();
+
     let addr = "127.0.0.1:25567".parse::<SocketAddr>().unwrap();
     println!("Running server on {:?}", addr);
     tokio::run(server_stream(addr, Box::new(|_addr| {
@@ -31,19 +35,19 @@ fn main() {
         println!("Main: Got user {:?}", user.name);
 
 
-        let client = Client::new();
-        let uri  = format!("https://minotar.net/body/{}/100.png", user.id);//.parse().unwrap();
+        let https = HttpsConnector::new(4).unwrap();
+        // TODO: re-enable keep-alive when Hyper is using std-futures tokio
+        let client = Client::builder().keep_alive(false).executor(ExecutorCompat).build::<_, hyper::Body>(https);
+        let uri  = format!("https://minotar.net/body/{}/100.png", user.id.to_simple()).parse().unwrap();
 
         println!("Requesting: {:?}", uri);
 
 
-        let res = client.get(&uri).send().compat().await.unwrap();
+        let res = client.get(uri).compat().await.unwrap();
         let body = res.into_body().compat();
-        let folded = body.fold(vec![], |mut acc: Vec<u8>, chunk: Result<Chunk, reqwest::Error>| {
+        let folded = body.fold(vec![], |mut acc, chunk| {
                 acc.extend_from_slice(&chunk.unwrap().as_ref());
-                println!("Acc: {:?}", acc);
-                let ready: futures::future::Ready<Vec<u8>> = future::ready(acc);
-                ready
+                future::ready(acc)
         });
 
         let data: Vec<u8> = folded.await;
