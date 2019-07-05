@@ -1,12 +1,13 @@
 #![feature(async_await)]
+#![feature(unsized_locals)]
 
 use std::net::SocketAddr;
 
 use futures::StreamExt;
-use mc_verifier::server_stream;
 use std::alloc::System;
 
 use image::GenericImageView;
+use mc_verifier::{AuthedUser, McVerifier};
 
 use termimage;
 use image;
@@ -20,6 +21,7 @@ use futures::future;
 use futures::compat::{Future01CompatExt, Stream01CompatExt, Compat};
 use futures::prelude::*;
 
+use std::error::Error;
 
 #[global_allocator]
 static A: System = System;
@@ -27,11 +29,15 @@ static A: System = System;
 fn main() {
     env_logger::init();
 
+
     let addr = "127.0.0.1:25567".parse::<SocketAddr>().unwrap();
     println!("Running server on {:?}", addr);
-    tokio::run(server_stream(addr, Box::new(|_addr| {
-        false
-    })).then(async move |user| {
+
+    let verifier = McVerifier::start(addr);
+    let (stream, canceller) = verifier.into_inner();
+
+
+    tokio::run(stream.then(async move |user| {
         println!("Main callback!");
         let user = user.expect("Error resolving user!");
         println!("Main: Got user {:?}", user.name);
@@ -62,6 +68,8 @@ fn main() {
         let new_s = termimage::ops::image_resized_size(skin_front.dimensions(), term_dims, true);
         let resized = termimage::ops::resize_image(&skin_front, new_s);
         termimage::ops::write_ansi_truecolor(&mut std::io::stdout(), &resized);
+
+        //canceller.cancel();
 
     }).for_each(|_| future::ready(())));
 }

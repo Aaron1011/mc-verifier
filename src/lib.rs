@@ -1,6 +1,7 @@
 #![recursion_limit="128"]
 
 #![feature(async_await)]
+#![feature(existential_type)]
 
 #![deny(clippy::option_unwrap_used, clippy::result_unwrap_used)]
 
@@ -55,6 +56,8 @@ use crate::packet::client::*;
 use crate::packet::server::*;
 
 use hyper::Client;
+
+pub use packet::AuthedUser;
 
 pub struct ExecutorCompat;
 
@@ -357,19 +360,53 @@ impl Decoder for PacketCodec {
     }
 }
 
-pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> bool + Send + Sync + 'static>) -> impl Stream<Item = Result<AuthedUser, Box<dyn Error>>> {
+pub struct ServerCanceller(futures::channel::oneshot::Sender<()>);
+
+impl ServerCanceller {
+    pub fn cancel(self) -> bool {
+        self.0.send(()).is_ok()
+    }
+}
+
+existential type ServerStream: Stream<Item = Result<AuthedUser, Box<dyn Error>>>;
+
+//pub type ServerStream = Box<Stream<Item = Result<AuthedUser, Box<dyn Error>>>>;
+
+pub struct McVerifier {
+    pub stream: ServerStream, 
+    cancel: futures::channel::oneshot::Sender<()>
+}
+
+impl McVerifier {
+    pub fn start(addr: SocketAddr) -> McVerifier {
+        let (sender, receiver) = futures::channel::oneshot::channel();
+        McVerifier {
+            stream: server_stream(addr, receiver),
+            cancel: sender
+        }
+    }
+
+    pub fn into_inner(self) -> (ServerStream, ServerCanceller) {
+        (self.stream, ServerCanceller(self.cancel))
+    }
+}
+
+fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Receiver<()>) -> ServerStream {
     let listener = TcpListener::bind(&addr).expect("Unable to bind TCP listener!");
-    let on_disconnect = Arc::new(on_disconnect);
 
     let (stop_server, server_done) = channel::<()>(1);
+
+    //let stopped_future = future::select(server_done.into_future(), cancelled)
+    //    .map(|_| Ok(()));
+
     let stop_server = Arc::new(stop_server);
     let stop_server_new = stop_server.clone();
 
-    let on_disconnect = on_disconnect.clone();
+    println!("Listener: {:?}", listener);
+
 
     let tcp_server = listener.incoming()
         .then(move |socket| {
-            let on_disconnect = on_disconnect.clone();
             let stop_server = stop_server_new.clone();
 
 
@@ -388,8 +425,6 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
 
                 let mut handler = SimpleHandler::new("".to_string());
 
-                let on_disconnect_new = on_disconnect.clone();
-
 
                 while let Some(pkt) = framed.next().await {
                     println!("Got packet: {:?}", pkt);
@@ -406,11 +441,6 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
                         for packet in res.packets {
                             framed.send(packet).await.unwrap();
                         }
-                        if (res.done.is_err() || res.done.as_ref().unwrap().is_some()) && on_disconnect(addr) {
-                            println!("Stopping for real!");
-                            let mut inner = (*stop_server).clone();
-                            inner.send(()).await.unwrap();
-                        }
                         user_res = res.done.map_err(|e| Box::new(e) as Box<dyn std::error::Error>).unwrap();
                     }
 
@@ -423,19 +453,12 @@ pub fn server_stream(addr: SocketAddr, on_disconnect: Box<dyn Fn(SocketAddr) -> 
 
                 
                 println!("Done: {:?}", socket_addr);
-                if on_disconnect_new(socket_addr) {
-                    let mut do_stop = (*stop_server).clone();
-                    // We don't care if we get an error - that
-                    // just means that we already tried to stop the server
-                    if let Err(e) = do_stop.send(()).await {
-                        eprintln!("Failed to shutdown: {:?}", e);
-                    }
-                }
             };
 
             tokio::spawn(proc_fut);
             user_rx.map(|r| Ok(r.unwrap()))
         });
 
-    Compat::new(tcp_server).take_until(Box::new(Compat::new(Box::new(server_done.into_future().map(|_| Ok(())))))).compat()
+    tcp_server
+    //Compat::new(tcp_server).take_until(Box::new(Compat::new(Box::new(stopped_future)))).compat()
 }
