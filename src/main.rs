@@ -6,6 +6,8 @@ use futures::StreamExt;
 use mc_verifier::server_stream;
 use std::alloc::System;
 
+use image::GenericImageView;
+
 use termimage;
 use image;
 
@@ -55,7 +57,11 @@ fn main() {
         std::fs::write("blah_skin.png", &data).unwrap();
 
         let skin_front = image::load_from_memory_with_format(&data, image::ImageFormat::PNG).expect("Failed to decode image!");
-        termimage::ops::write_ansi_truecolor(&mut std::io::stdout(), &skin_front);
+        let term_dims = term_size::dimensions().unwrap();
+        let term_dims = (term_dims.0 as u32, term_dims.1 as u32);
+        let new_s = termimage::ops::image_resized_size(skin_front.dimensions(), term_dims, true);
+        let resized = termimage::ops::resize_image(&skin_front, new_s);
+        termimage::ops::write_ansi_truecolor(&mut std::io::stdout(), &resized);
 
     }).for_each(|_| future::ready(())));
 }
