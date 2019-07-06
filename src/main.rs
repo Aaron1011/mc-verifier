@@ -2,6 +2,8 @@
 #![feature(unsized_locals)]
 
 use std::net::SocketAddr;
+use std::collections::HashMap;
+
 
 use futures::StreamExt;
 use std::alloc::System;
@@ -41,9 +43,12 @@ fn main() {
     let verifier = McVerifier::start(addr);
     let (stream, canceller) = verifier.into_inner();
     let canceller = Rc::new(RefCell::new(Some(canceller)));
+    let start_date_cache = Rc::new(RefCell::new(HashMap::new()));
 
     tokio::run(stream.then(move |user_data| {
         let canceller_new = canceller.clone();
+        let start_date_cache = start_date_cache.clone();
+
         async move {
             println!("Main callback!");
             let user_data = user_data.expect("Error resolving user!");
@@ -76,16 +81,27 @@ fn main() {
             let resized = termimage::ops::resize_image(&skin_front, new_s);
             termimage::ops::write_ansi_truecolor(&mut std::io::stdout(), &resized);
 
-            let start_date = created_date(&mut client, user_data.user.name.clone()).await;
+            let username = &user_data.user.name;
+
+            let start_date = if start_date_cache.borrow().contains_key(username) {
+                start_date_cache.borrow()[username]
+            } else {
+                let date = created_date(&mut client, username.clone()).await.unwrap();
+                start_date_cache.borrow_mut().insert(username.clone(), date);
+                date
+            };
+
+            //start_date_cache.entry(&user_data.user.name).or_insert_with(|| created_date(&mut client, user_data.user.name.clone()).await);
+
             println!("Start date: {:?}", start_date);
 
             let user = user_data.user;
 
-            let message = format!("Successfully authenticated:\n{}\nUUID {}\nCreation date: {}", user.name, user.id, start_date.unwrap());
+            let message = format!("Successfully authenticated:\n{}\nUUID {}\nCreation date: {}", user.name, user.id, start_date);
 
             user_data.disconnect.send(object! {"text" => message }.to_string()).unwrap();
 
-            canceller_new.borrow_mut().take().expect("Already tried to shutdown the server!").cancel();
+            //canceller_new.borrow_mut().take().expect("Already tried to shutdown the server!").cancel();
             //canceller.take().expect("Already tried to stop the server!").cancel();
         }
     }).for_each(|_| future::ready(())));
