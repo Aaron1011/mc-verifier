@@ -396,8 +396,8 @@ fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Receive
 
     let (stop_server, server_done) = channel::<()>(1);
 
-    //let stopped_future = future::select(server_done.into_future(), cancelled)
-    //    .map(|_| Ok(()));
+    let stopped_future = future::select(server_done.into_future(), cancelled)
+        .map(|_| Ok(()));
 
     let stop_server = Arc::new(stop_server);
     let stop_server_new = stop_server.clone();
@@ -459,6 +459,6 @@ fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Receive
             user_rx.map(|r| Ok(r.unwrap()))
         });
 
-    tcp_server
-    //Compat::new(tcp_server).take_until(Box::new(Compat::new(Box::new(stopped_future)))).compat()
+    //tcp_server
+    Compat::new(tcp_server).take_until(Box::new(Compat::new(Box::new(stopped_future)))).compat()
 }
