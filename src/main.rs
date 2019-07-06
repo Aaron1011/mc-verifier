@@ -8,7 +8,7 @@ use std::alloc::System;
 use std::cell::RefCell;
 
 use image::GenericImageView;
-use mc_verifier::{AuthedUser, McVerifier};
+use mc_verifier::{AuthedUser, McVerifier, created_date};
 
 use termimage;
 use image;
@@ -50,7 +50,7 @@ fn main() {
 
             let https = HttpsConnector::new(4).unwrap();
             // TODO: re-enable keep-alive when Hyper is using std-futures tokio
-            let client = Client::builder().keep_alive(false).executor(ExecutorCompat).build::<_, hyper::Body>(https);
+            let mut client = Client::builder().keep_alive(false).executor(ExecutorCompat).build::<_, hyper::Body>(https);
             let uri  = format!("https://minotar.net/body/{}/100.png", user.id.to_simple()).parse().unwrap();
 
             println!("Requesting: {:?}", uri);
@@ -73,6 +73,9 @@ fn main() {
             let new_s = termimage::ops::image_resized_size(skin_front.dimensions(), term_dims, true);
             let resized = termimage::ops::resize_image(&skin_front, new_s);
             termimage::ops::write_ansi_truecolor(&mut std::io::stdout(), &resized);
+
+            let start_date = created_date(&mut client, user.name.clone()).await;
+            println!("Start date: {:?}", start_date);
 
             canceller_new.borrow_mut().take().expect("Already tried to shutdown the server!").cancel();
             //canceller.take().expect("Already tried to stop the server!").cancel();

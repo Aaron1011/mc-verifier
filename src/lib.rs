@@ -50,6 +50,7 @@ use std::future::Future;
 use hyper_tls::HttpsConnector;
 
 pub mod packet;
+mod account_info;
 
 use crate::packet::*;
 use crate::packet::client::*;
@@ -57,6 +58,7 @@ use crate::packet::server::*;
 
 use hyper::Client;
 
+pub use account_info::created_date;
 pub use packet::AuthedUser;
 
 pub struct ExecutorCompat;
@@ -278,17 +280,20 @@ impl ClientHandler for SimpleHandler {
                 Some(&secret_key)
             ).unwrap();
             let enc = Encryption { encrypt, _decrypt: decrypt, block_size: Cipher::aes_128_cfb8().block_size() };
-            let packets = vec![Box::new(LoginDisconnect {
-                reason: object! {
-                    "text" => format!("Successfully authenticated: {}", data)
-                }.to_string()
-            }) as Box<dyn Packet + Send>];
+
 
             let user: AuthedUser = serde_json::from_str(&data)?;
             for prop in &user.properties {
                 println!("Verifying: {:?}", prop);
                 assert!(prop.verify().expect("Error verifying property"))
             }
+
+            let packets = vec![Box::new(LoginDisconnect {
+                reason: object! {
+                    "text" => format!("Successfully authenticated:\n{}\nUUID {}", user.name, user.id)
+                }.to_string()
+            }) as Box<dyn Packet + Send>];
+
 
 
             Ok(HandlerAction {
