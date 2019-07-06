@@ -7,6 +7,8 @@ use futures::StreamExt;
 use std::alloc::System;
 use std::cell::RefCell;
 
+use json::object;
+
 use image::GenericImageView;
 use mc_verifier::{AuthedUser, McVerifier, created_date};
 
@@ -40,18 +42,18 @@ fn main() {
     let (stream, canceller) = verifier.into_inner();
     let canceller = Rc::new(RefCell::new(Some(canceller)));
 
-    tokio::run(stream.then(move |user| {
+    tokio::run(stream.then(move |user_data| {
         let canceller_new = canceller.clone();
         async move {
             println!("Main callback!");
-            let user = user.expect("Error resolving user!");
-            println!("Main: Got user {:?}", user.name);
+            let user_data = user_data.expect("Error resolving user!");
+            println!("Main: Got user {:?}", user_data.user.name);
 
 
             let https = HttpsConnector::new(4).unwrap();
             // TODO: re-enable keep-alive when Hyper is using std-futures tokio
             let mut client = Client::builder().keep_alive(false).executor(ExecutorCompat).build::<_, hyper::Body>(https);
-            let uri  = format!("https://minotar.net/body/{}/100.png", user.id.to_simple()).parse().unwrap();
+            let uri  = format!("https://minotar.net/body/{}/100.png", user_data.user.id.to_simple()).parse().unwrap();
 
             println!("Requesting: {:?}", uri);
 
@@ -74,8 +76,14 @@ fn main() {
             let resized = termimage::ops::resize_image(&skin_front, new_s);
             termimage::ops::write_ansi_truecolor(&mut std::io::stdout(), &resized);
 
-            let start_date = created_date(&mut client, user.name.clone()).await;
+            let start_date = created_date(&mut client, user_data.user.name.clone()).await;
             println!("Start date: {:?}", start_date);
+
+            let user = user_data.user;
+
+            let message = format!("Successfully authenticated:\n{}\nUUID {}\nCreation date: {}", user.name, user.id, start_date.unwrap());
+
+            user_data.disconnect.send(object! {"text" => message }.to_string()).unwrap();
 
             canceller_new.borrow_mut().take().expect("Already tried to shutdown the server!").cancel();
             //canceller.take().expect("Already tried to stop the server!").cancel();

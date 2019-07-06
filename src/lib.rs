@@ -194,11 +194,11 @@ impl ClientHandler for SimpleHandler {
         let gen = future::ok(()).and_then(async move |_| {
             Ok(HandlerAction {
                 encryption: None,
-                packets: vec![Box::new(EncryptionRequest {
+                packets: Box::pin(future::ready(vec![Box::new(EncryptionRequest {
                     server_id: server_id.clone(),
                     pub_key: ByteArray::new(encoded_public_key),
                     verify_token: ByteArray::new(verify_token.to_vec())
-                })],
+                }) as Box<dyn Packet + Send>])),
                 done: Ok(None)
             })
         });
@@ -288,18 +288,24 @@ impl ClientHandler for SimpleHandler {
                 assert!(prop.verify().expect("Error verifying property"))
             }
 
-            let packets = vec![Box::new(LoginDisconnect {
-                reason: object! {
-                    "text" => format!("Successfully authenticated:\n{}\nUUID {}", user.name, user.id)
-                }.to_string()
-            }) as Box<dyn Packet + Send>];
+            let (message_tx, message_rx) = futures::channel::oneshot::channel();
 
+            let user_data = UserData {
+                user,
+                disconnect: message_tx
+            };
+
+
+            let packet_fut = async move {
+                let reason = message_rx.await.unwrap();
+                vec![Box::new(LoginDisconnect { reason }) as Box<dyn Packet + Send>]
+            };
 
 
             Ok(HandlerAction {
                 encryption: Some(enc),
-                packets,
-                done: Ok(Some(user))
+                packets: Box::pin(packet_fut),
+                done: Ok(Some(user_data))
             })
         })))
     }
@@ -371,9 +377,12 @@ impl ServerCanceller {
     pub fn cancel(self) -> bool {
         self.0.send(()).is_ok()
     }
+
 }
 
-existential type ServerStream: Stream<Item = Result<AuthedUser, Box<dyn Error>>>;
+
+
+existential type ServerStream: Stream<Item = Result<UserData, Box<dyn Error>>>;
 
 //pub type ServerStream = Box<Stream<Item = Result<AuthedUser, Box<dyn Error>>>>;
 
@@ -416,6 +425,7 @@ fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Receive
 
 
             let (user_tx, user_rx) = oneshot::channel();
+            let mut user_tx = Some(user_tx);
 
             let proc_fut = async move {
                 let socket = socket.unwrap();
@@ -439,20 +449,30 @@ fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Receive
 
                     if let Some(c) = ret.as_mut() {
                         let res = c.await.unwrap();
+
+                        println!("Got res!");
+
                         if let Some(enc) = res.encryption {
                             framed.codec_mut().set_encryption(enc);
                         }
 
-                        for packet in res.packets {
+
+                        user_res = res.done.map_err(|e| Box::new(e) as Box<dyn std::error::Error>).unwrap();
+
+                        let mut should_break = false;
+
+                        println!("Got user res: {:?}", user_res);
+                        if let Some(user) = user_res {
+                            user_tx.take().unwrap().send(user).unwrap();
+                            should_break = true;
+                        }
+
+                        for packet in res.packets.await {
                             framed.send(packet).await.unwrap();
                         }
-                        user_res = res.done.map_err(|e| Box::new(e) as Box<dyn std::error::Error>).unwrap();
-                    }
-
-                    println!("Got user res: {:?}", user_res);
-                    if let Some(user) = user_res {
-                        user_tx.send(user).unwrap();
-                        break;
+                        if should_break {
+                            break;
+                        }
                     }
                 }
 

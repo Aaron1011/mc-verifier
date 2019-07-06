@@ -4,7 +4,7 @@ mod types;
 
 
 
-pub use types::{AuthedUser, HandlerRet, HandlerAction, Packet, PacketState, Side, Readable, Writeable, VarInt, ReadResult, ReadErr, ParsedPacket, ByteArray};
+pub use types::{UserData, AuthedUser, HandlerRet, HandlerAction, Packet, PacketState, Side, Readable, Writeable, VarInt, ReadResult, ReadErr, ParsedPacket, ByteArray};
 pub use client::ClientHandler;
 pub use server::ServerHandler;
 

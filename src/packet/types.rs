@@ -22,18 +22,26 @@ pub type HandlerRet = Option<Pin<Box<dyn Future<Output = Result<HandlerAction, s
 
 pub struct HandlerAction {
     pub encryption: Option<Encryption>,
-    pub packets: Vec<Box<dyn Packet + Send>>,
-    pub done: Result<Option<AuthedUser>, Box<std::io::Error>>
+    pub packets: Pin<Box<dyn Future<Output = Vec<Box<dyn Packet + Send>>> + Send>>,
+    pub done: Result<Option<UserData>, Box<std::io::Error>>
 }
 
 use base64::STANDARD;
 base64_serde_type!(pub Base64Standard, STANDARD);
 
-#[derive(Debug, Serialize, Deserialize)]
+
+
+#[derive(Debug, Deserialize)]
 pub struct AuthedUser {
     pub id: Uuid,
     pub name: String,
-    pub properties: Vec<Property>
+    pub properties: Vec<Property>,
+}
+
+#[derive(Debug)]
+pub struct UserData {
+    pub user: AuthedUser,
+    pub disconnect: futures::channel::oneshot::Sender<String>
 }
 
 
