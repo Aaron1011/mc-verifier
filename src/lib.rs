@@ -20,6 +20,7 @@ use openssl::rand::rand_bytes;
 use openssl::sha::Sha1;
 use openssl::symm::{Cipher, Mode, Crypter};
 
+use futures::stream::BoxStream;
 use futures::prelude::*;
 
 
@@ -381,8 +382,9 @@ impl ServerCanceller {
 }
 
 
-
-existential type ServerStream: Stream<Item = Result<UserData, Box<dyn Error>>>;
+// TODO - re-enable existential type
+//existential type ServerStream: Stream<Item = Result<UserData, Box<dyn Error>>>;
+type ServerStream = BoxStream<'static, Result<UserData, Box<dyn Error>>>;
 
 //pub type ServerStream = Box<Stream<Item = Result<AuthedUser, Box<dyn Error>>>>;
 
@@ -485,5 +487,5 @@ fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Receive
         });
 
     //tcp_server
-    Compat::new(tcp_server).take_until(Box::new(Compat::new(Box::new(stopped_future)))).compat()
+    Box::pin(Compat::new(tcp_server).take_until(Box::new(Compat::new(Box::new(stopped_future)))).compat())
 }
