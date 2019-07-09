@@ -5,23 +5,23 @@ authors = ["Aaron Hill <aa1ronham@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-#tokio = {git = "https://github.com/tokio-rs/tokio" }
-tokio = { path = "../tokio/tokio" }
-tokio-executor = { path = "../tokio/tokio-executor" }
-tokio-tcp = { path = "../tokio/tokio-tcp", features = ["incoming"] }
+tokio = {git = "https://github.com/tokio-rs/tokio" }
+#tokio = { path = "../tokio/tokio" }
+#tokio-executor = { path = "../tokio/tokio-executor" }
+#tokio-tcp = { path = "../tokio/tokio-tcp", features = ["incoming"] }
 byteorder = "1.3.2"
 packet_macro = { path = "packet_macro" }
 lazy_static = "1.3.0"
 bytes = "0.4.12"
 openssl = "0.10.23"
 hex = "0.3.2"
-hyper = "0.12.31"
+hyper = "0.12.32"
 #hyper = { path = "../hyper"}
 hyper-tls = "0.3.2"
 #hyper-tls = { path = "../hyper-tls" }
 num-bigint = "0.2.2"
 nix = "0.14.1"
-libc = "0.2.58"
+libc = "0.2.59"
 futures-preview = { version = "0.3.0-alpha.17", features = ["async-await", "nightly", "compat"] }
 futures01 = { package = "futures", version = "0.1.28" }
 json = "0.11.14"
