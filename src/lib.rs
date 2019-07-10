@@ -1,4 +1,4 @@
-#![recursion_limit="128"]
+#![recursion_limit="256"]
 
 #![feature(async_await)]
 #![feature(existential_type)]
@@ -407,7 +407,7 @@ impl McVerifier {
     }
 }
 
-fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Receiver<()>) -> ServerStream {
+pub fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Receiver<()>) -> ServerStream {
     let listener = TcpListener::bind(&addr).expect("Unable to bind TCP listener!");
 
     let (stop_server, server_done) = channel::<()>(1);

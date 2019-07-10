@@ -38,3 +38,10 @@ reqwest = "0.9.18"
 env_logger = "0.6.2"
 term_size = "0.3.1"
 chrono = "0.4.7"
+
+[dev-dependencies]
+criterion = "0.2.11"
+
+[[bench]]
+name = "creation_time"
+harness = false
