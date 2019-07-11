@@ -16,15 +16,16 @@ use std::future::Future;
 
 
 // Based on https://gist.github.com/jomo/be7dbb5228187edbb993
-pub async fn created_date<T: Connect + Sync + 'static>(client: &mut Client<T>, name: String) -> Result<DateTime<Utc>, Box<std::error::Error>> {
+pub async fn created_date<T: Connect + Sync + 'static>(client: &mut Client<T>, name: String) -> Result<DateTime<Utc>, Box<std::error::Error + Send>> {
     let mut start = 1263146630; // notch sign-up;
     let mut end = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
     let check = |name, time| {
         println!("Checking: {:?}", time);
-        Pin::from(Box::new(client
+        let boxed: Box<dyn Send + Future<Output = Result<Response<Body>, Box<std::error::Error + Send>>>> = Box::new(client
             .get(format!("https://api.mojang.com/users/profiles/minecraft/{}?at={}", name, time).parse().unwrap())
-            .compat()) as Box<dyn Future<Output = Result<Response<Body>, _>>>)
+            .compat().map(|r| r.map_err(|e| Box::new(e) as Box<std::error::Error + Send>)));
+        Pin::from(boxed)
     };
 
     let calc_mid = |start, end| {
@@ -63,11 +64,11 @@ pub async fn created_date<T: Connect + Sync + 'static>(client: &mut Client<T>, n
                 },
                 left_res = left_fut => {
                     println!("Got left future!");
-                    left_done = Some(Pin::from(Box::new(future::ready(left_res)) as Box<dyn Future<Output = _>> ).fuse());
+                    left_done = Some(Pin::from(Box::new(future::ready(left_res)) as Box<dyn Send + Future<Output = _>> ).fuse());
                 }
                 right_res = right_fut => {
                     println!("Got right future!");
-                    right_done = Some(Pin::from(Box::new(future::ready(right_res)) as Box<dyn Future<Output = _>> ).fuse());
+                    right_done = Some(Pin::from(Box::new(future::ready(right_res)) as Box<dyn Send + Future<Output = _>> ).fuse());
                 }
             }
         }

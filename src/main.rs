@@ -90,16 +90,24 @@ fn main() {
 
             let username = &user_data.user.name;
 
-            let start_date = {
-                if let Some(date) = start_date_cache.read().unwrap().get(username).cloned() {
-                    date
-                } else {
-                    let date = created_date(&mut client, username.clone()).await.unwrap();
-                    let cache_mut = start_date_cache.write().unwrap();
-                    cache_mut.insert(username.clone(), date);
-                    drop(cache_mut);
-                    date
-                }
+            // This is fairly annoying. Ideally, this expression would be inline in the 'if let'
+            // expression: e.g. 'if let Some(data) = start_date_cache.read().unwrap().get(username).cloned()'
+            // Unfortunately, the temporary 'RwLockReadGuard' returned by 'read' would not be
+            // dropped until after the *entire* if/else block finished - which means that it could
+            // live across the 'await' point.
+            // This is necessary to force the read guard to be dropped early
+            let get_entry = || {
+                start_date_cache.read().unwrap().get(username).cloned() 
+            };
+
+            let start_date = if let Some(date) = get_entry() {
+                date
+            } else {
+                let date = created_date(&mut client, username.clone()).await.unwrap();
+                let mut cache_mut = start_date_cache.write().unwrap();
+                cache_mut.insert(username.clone(), date);
+                drop(cache_mut);
+                date
             };
 
             //start_date_cache.entry(&user_data.user.name).or_insert_with(|| created_date(&mut client, user_data.user.name.clone()).await);
