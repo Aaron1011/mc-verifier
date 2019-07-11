@@ -30,6 +30,11 @@ use std::rc::Rc;
 
 use std::error::Error;
 
+use std::sync::Arc;
+
+use atomicbox::AtomicOptionBox;
+use std::sync::RwLock;
+
 #[global_allocator]
 static A: System = System;
 
@@ -42,10 +47,12 @@ fn main() {
 
     let verifier = McVerifier::start(addr);
     let (stream, canceller) = verifier.into_inner();
-    let canceller = Rc::new(RefCell::new(Some(canceller)));
-    let start_date_cache = Rc::new(RefCell::new(HashMap::new()));
+    let canceller = Arc::new(AtomicOptionBox::new(Some(Box::new(canceller))));
+    let start_date_cache = Arc::new(RwLock::new(HashMap::new()));
 
-    tokio::run(stream.then(move |user_data| {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    rt.block_on(stream.then(move |user_data| {
         let canceller_new = canceller.clone();
         let start_date_cache = start_date_cache.clone();
 
@@ -83,12 +90,16 @@ fn main() {
 
             let username = &user_data.user.name;
 
-            let start_date = if start_date_cache.borrow().contains_key(username) {
-                start_date_cache.borrow()[username]
-            } else {
-                let date = created_date(&mut client, username.clone()).await.unwrap();
-                start_date_cache.borrow_mut().insert(username.clone(), date);
-                date
+            let start_date = {
+                if let Some(date) = start_date_cache.read().unwrap().get(username).cloned() {
+                    date
+                } else {
+                    let date = created_date(&mut client, username.clone()).await.unwrap();
+                    let cache_mut = start_date_cache.write().unwrap();
+                    cache_mut.insert(username.clone(), date);
+                    drop(cache_mut);
+                    date
+                }
             };
 
             //start_date_cache.entry(&user_data.user.name).or_insert_with(|| created_date(&mut client, user_data.user.name.clone()).await);

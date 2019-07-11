@@ -478,13 +478,17 @@ pub fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Rec
                     }
                 }
 
-                
+
                 println!("Done: {:?}", socket_addr);
             };
+
+            println!("Proc fut size: {}", std::mem::size_of_val(&proc_fut));
 
             tokio::spawn(proc_fut);
             user_rx.map(|r| Ok(r.unwrap()))
         });
+
+    println!("TCP server size: {}", std::mem::size_of_val(&tcp_server));
 
     //tcp_server
     Box::pin(Compat::new(tcp_server).take_until(Box::new(Compat::new(Box::new(stopped_future)))).compat())
