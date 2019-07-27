@@ -1,6 +1,7 @@
 #![recursion_limit="256"]
 
 #![feature(async_await)]
+#![feature(async_closure)]
 #![feature(existential_type)]
 
 #![deny(clippy::option_unwrap_used, clippy::result_unwrap_used)]
