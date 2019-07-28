@@ -384,8 +384,8 @@ impl ServerCanceller {
 
 
 // TODO - re-enable existential type
-//existential type ServerStream: Stream<Item = Result<UserData, Box<dyn Error>>>;
-type ServerStream = BoxStream<'static, Result<UserData, Box<dyn Error + Send>>>;
+existential type ServerStream: Stream<Item = Result<UserData, Box<dyn Error + Send>>>;
+//type ServerStream = BoxStream<'static, Result<UserData, Box<dyn Error + Send>>>;
 
 //pub type ServerStream = Box<Stream<Item = Result<AuthedUser, Box<dyn Error>>>>;
 
