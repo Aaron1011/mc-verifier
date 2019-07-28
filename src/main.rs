@@ -64,14 +64,14 @@ fn main() {
 
             let https = HttpsConnector::new(4).unwrap();
             // TODO: re-enable keep-alive when Hyper is using std-futures tokio
-            let mut client = Client::builder().keep_alive(false).executor(ExecutorCompat).build::<_, hyper::Body>(https);
+            let mut client = Client::builder().keep_alive(false)/*.executor(ExecutorCompat)*/.build::<_, hyper::Body>(https);
             let uri  = format!("https://minotar.net/body/{}/100.png", user_data.user.id.to_simple()).parse().unwrap();
 
             println!("Requesting: {:?}", uri);
 
 
-            let res = client.get(uri).compat().await.unwrap();
-            let body = res.into_body().compat();
+            let res = client.get(uri).await.unwrap();
+            let body = res.into_body();
             let folded = body.fold(vec![], |mut acc, chunk| {
                     acc.extend_from_slice(&chunk.unwrap().as_ref());
                     future::ready(acc)

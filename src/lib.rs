@@ -244,7 +244,7 @@ impl ClientHandler for SimpleHandler {
 
         // 4 is number of blocking DNS threads
         let https = HttpsConnector::new(4).unwrap();
-        let client = Client::builder().executor(ExecutorCompat).build::<_, hyper::Body>(https);
+        let client = Client::builder()/*.executor(ExecutorCompat)*/.build::<_, hyper::Body>(https);
         //let client = Client::builder().build(https);
         let uri = format!("https://sessionserver.mojang.com/session/minecraft/hasJoined?username={}&serverId={}", self.username.as_ref().unwrap(), &hash)
             .parse().unwrap();
@@ -253,13 +253,13 @@ impl ClientHandler for SimpleHandler {
 
         Some(Pin::from(Box::new(async move {
 
-            let res = client.get(uri).compat().await.unwrap();
+            let res = client.get(uri).await.unwrap();
                 
 
             let secret_key = secret_key.clone();
             println!("Got response: {:?}", res);
 
-            let body = res.into_body().compat();
+            let body = res.into_body();
 
             let data = String::from_utf8(body.fold(vec![], |mut acc, chunk| {
                 acc.extend_from_slice(&chunk.unwrap());

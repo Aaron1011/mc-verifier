@@ -24,7 +24,7 @@ pub async fn created_date<T: Connect + Sync + 'static>(client: &mut Client<T>, n
         println!("Checking: {:?}", time);
         let boxed: Box<dyn Send + Future<Output = Result<Response<Body>, Box<std::error::Error + Send>>>> = Box::new(client
             .get(format!("https://api.mojang.com/users/profiles/minecraft/{}?at={}", name, time).parse().unwrap())
-            .compat().map(|r| r.map_err(|e| Box::new(e) as Box<std::error::Error + Send>)));
+            .map(|r| r.map_err(|e| Box::new(e) as Box<std::error::Error + Send>)));
         Pin::from(boxed)
     };
 
