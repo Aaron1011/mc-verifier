@@ -2,7 +2,7 @@
 
 #![feature(async_await)]
 #![feature(async_closure)]
-#![feature(existential_type)]
+#![feature(type_alias_impl_trait)]
 
 #![deny(clippy::option_unwrap_used, clippy::result_unwrap_used)]
 
@@ -383,11 +383,7 @@ impl ServerCanceller {
 }
 
 
-// TODO - re-enable existential type
-existential type ServerStream: Stream<Item = Result<UserData, Box<dyn Error + Send>>>;
-//type ServerStream = BoxStream<'static, Result<UserData, Box<dyn Error + Send>>>;
-
-//pub type ServerStream = Box<Stream<Item = Result<AuthedUser, Box<dyn Error>>>>;
+type ServerStream = impl Stream<Item = Result<UserData, Box<dyn Error + Send>>>;
 
 pub struct McVerifier {
     pub stream: ServerStream, 
