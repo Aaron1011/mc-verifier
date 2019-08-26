@@ -5,7 +5,8 @@ authors = ["Aaron Hill <aa1ronham@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-tokio = {git = "https://github.com/tokio-rs/tokio" }
+#tokio = {git = "https://github.com/tokio-rs/tokio" }
+tokio = "0.2.0-alpha.1"
 #tokio-tcp = {git = "https://github.com/tokio-rs/tokio", features = ["incoming"] } 
 #tokio = { path = "../tokio/tokio" }
 #tokio-executor = { path = "../tokio/tokio-executor" }
@@ -23,7 +24,7 @@ hyper = { git = "https://github.com/hyperium/hyper" }
 #hyper-tls = { path = "../hyper-tls" }
 hyper-tls = { git = "https://github.com/hyperium/hyper-tls" }
 num-bigint = "0.2.2"
-nix = "0.14.1"
+nix = "0.15.0"
 libc = "0.2.60"
 futures-preview = { version = "0.3.0-alpha.17", features = ["async-await", "nightly", "compat"] }
 futures01 = { package = "futures", version = "0.1.28" }
@@ -35,9 +36,9 @@ serde_json = "1.0.40"
 base64-serde = "0.3.2"
 base64 = "0.10.1"
 termimage = "0.4.0"
-image = "0.21.0"
+image = "0.21"
 env_logger = "0.6.2"
-term_size = "1.0.0-beta1"
+term_size = "0.3.1"
 chrono = "0.4.7"
 atomicbox = "0.2.0"
 
