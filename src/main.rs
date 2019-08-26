@@ -1,4 +1,3 @@
-#![feature(async_await)]
 #![feature(unsized_locals)]
 
 use std::net::SocketAddr;

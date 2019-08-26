@@ -1,6 +1,5 @@
 #![recursion_limit="256"]
 
-#![feature(async_await)]
 #![feature(async_closure)]
 #![feature(type_alias_impl_trait)]
 
