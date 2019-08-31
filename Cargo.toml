@@ -16,7 +16,6 @@ packet_macro = { path = "packet_macro" }
 lazy_static = "1.4.0"
 bytes = "0.4.12"
 openssl = "0.10.24"
-hex = "0.3.2"
 #hyper = "0.12.32"
 #hyper = { path = "../hyper"}
 hyper = { git = "https://github.com/hyperium/hyper" }
@@ -24,7 +23,6 @@ hyper = { git = "https://github.com/hyperium/hyper" }
 #hyper-tls = { path = "../hyper-tls" }
 hyper-tls = { git = "https://github.com/hyperium/hyper-tls" }
 num-bigint = "0.2.2"
-nix = "0.15.0"
 libc = "0.2.62"
 futures-preview = { version = "0.3.0-alpha.18", features = ["async-await", "nightly", "compat"] }
 futures01 = { package = "futures", version = "0.1.28" }
