@@ -233,7 +233,7 @@ impl ClientHandler for SimpleHandler {
 
         Ok(Some(Pin::from(Box::new(async move {
 
-            let res = client.get(uri).await.unwrap();
+            let res = client.get(uri).await?;
                 
 
             let secret_key = secret_key.clone();
@@ -244,7 +244,7 @@ impl ClientHandler for SimpleHandler {
             let data = String::from_utf8(body.fold(vec![], |mut acc, chunk| {
                 acc.extend_from_slice(&chunk.unwrap());
                 future::ready(acc)
-            }).await).expect("Failed to parse Mojang response");
+            }).await)?;
 
             println!("Got body: {:?}", data);
 
@@ -253,14 +253,14 @@ impl ClientHandler for SimpleHandler {
                 Mode::Encrypt,
                 &secret_key,
                 Some(&secret_key) // IV and secret are the same in Minecraft
-            ).unwrap();
+            )?;
 
             let decrypt = Crypter::new(
                 Cipher::aes_128_cfb8(),
                 Mode::Decrypt,
                 &secret_key,
                 Some(&secret_key)
-            ).unwrap();
+            )?;
             let enc = Encryption { encrypt, _decrypt: decrypt, block_size: Cipher::aes_128_cfb8().block_size() };
 
 
