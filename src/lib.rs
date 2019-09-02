@@ -139,7 +139,7 @@ impl SimpleHandler {
         self.public_key = Some(public_key);
     }
 
-    fn server_hash(&self, secret: &[u8]) -> String {
+    fn server_hash(&self, secret: &[u8]) -> Result<String> {
         let mut sha = Sha1::new();
         sha.update(self.server_id.as_bytes());
         sha.update(secret);
@@ -149,7 +149,7 @@ impl SimpleHandler {
 
         // Weird Minecraft-specific encoding: see https://wiki.vg/Protocol_Encryption
         let int = BigInt::from_signed_bytes_be(&hash);
-        int.to_str_radix(16)
+        Ok(int.to_str_radix(16))
     }
 }
 
@@ -221,7 +221,7 @@ impl ClientHandler for SimpleHandler {
         println!("Verify token matches! Shared secret: {:?}", &secret[..secret_len]);
         println!("Secret key: {:?}", secret_key);
 
-        let hash = self.server_hash(&secret_key);
+        let hash = self.server_hash(&secret_key).unwrap();
 
         let https = HttpsConnector::new().unwrap();
         let client = Client::builder()/*.executor(ExecutorCompat)*/.build::<_, hyper::Body>(https);
