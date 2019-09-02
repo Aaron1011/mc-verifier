@@ -174,7 +174,7 @@ impl ClientHandler for SimpleHandler {
         let server_id = self.server_id.clone();
         let encoded_public_key = self.encoded_public_key.clone().unwrap();
 
-        let gen = future::ok(()).and_then(async move |_| {
+        let gen = async move {
             Ok(HandlerAction {
                 encryption: None,
                 packets: Box::pin(future::ready(vec![Box::new(EncryptionRequest {
@@ -184,7 +184,7 @@ impl ClientHandler for SimpleHandler {
                 }) as Box<dyn Packet + Send>])),
                 done: Ok(None)
             })
-        });
+        };
 
 
         Ok(Some(Pin::from(Box::new(gen) as Box<dyn Future<Output = Result<HandlerAction>> + Send>)))
