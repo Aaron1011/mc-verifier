@@ -7,12 +7,11 @@ use std::collections::HashMap;
 
 use futures::StreamExt;
 use std::alloc::System;
-use std::cell::RefCell;
 
 use json::object;
 
 use image::GenericImageView;
-use mc_verifier::{AuthedUser, McVerifier, created_date};
+use mc_verifier::{McVerifier, created_date};
 
 use termimage;
 use image;
@@ -21,12 +20,6 @@ use hyper_tls::HttpsConnector;
 use hyper::Client;
 
 use futures::future;
-use futures::compat::{Future01CompatExt, Stream01CompatExt, Compat};
-use futures::prelude::*;
-
-use std::rc::Rc;
-
-use std::error::Error;
 
 use std::sync::Arc;
 
@@ -49,8 +42,6 @@ async fn main() {
     let (stream, canceller) = verifier.into_inner();
     let canceller = Arc::new(AtomicOptionBox::new(Some(Box::new(canceller))));
     let start_date_cache = Arc::new(RwLock::new(HashMap::new()));
-
-    let rt = tokio::runtime::Runtime::new().unwrap();
 
     #[for_await]
     for user_data in stream {
@@ -108,8 +99,6 @@ async fn main() {
             drop(cache_mut);
             date
         };
-
-        //start_date_cache.entry(&user_data.user.name).or_insert_with(|| created_date(&mut client, user_data.user.name.clone()).await);
 
         println!("Start date: {:?}", start_date);
 
