@@ -19,8 +19,6 @@ use image;
 use hyper_tls::HttpsConnector;
 use hyper::Client;
 
-use mc_verifier::ExecutorCompat;
-
 use futures::future;
 use futures::compat::{Future01CompatExt, Stream01CompatExt, Compat};
 use futures::prelude::*;

@@ -16,7 +16,6 @@ hyper-tls = { git = "https://github.com/hyperium/hyper-tls" }
 num-bigint = "0.2.2"
 libc = "0.2.62"
 futures-preview = { version = "0.3.0-alpha.18", features = ["async-await", "nightly", "compat"] }
-futures01 = { package = "futures", version = "0.1.28" }
 json = "0.11.15"
 stream-cancel = "0.4.4"
 uuid = { version = "0.7.4", features = ["serde"] }

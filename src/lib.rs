@@ -62,15 +62,6 @@ use hyper::Client;
 pub use account_info::created_date;
 pub use packet::AuthedUser;
 
-pub struct ExecutorCompat;
-
-impl futures01::future::Executor<Box<dyn futures01::Future<Item = (), Error = ()> + Send + 'static>> for ExecutorCompat {
-    fn execute(&self, future: Box<dyn futures01::Future<Item = (), Error = ()> + Send>) -> Result<(), futures01::future::ExecuteError<Box<dyn futures01::Future<Item = (), Error = ()> + Send>>> {
-        tokio::spawn(future.compat().map(|r| r.unwrap()));
-        Ok(())
-    }
-}
-
 struct PacketCodec {
     state: u64,
     encryption: Option<Encryption>
