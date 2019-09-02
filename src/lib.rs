@@ -7,9 +7,7 @@
 
 use std::error::Error;
 
-use futures::compat::{Future01CompatExt, Stream01CompatExt, Compat};
-
-use json::object;
+use futures::compat::{Stream01CompatExt, Compat};
 
 use stream_cancel::StreamExt as _;
 
@@ -20,11 +18,9 @@ use openssl::rand::rand_bytes;
 use openssl::sha::Sha1;
 use openssl::symm::{Cipher, Mode, Crypter};
 
-use futures::stream::BoxStream;
 use futures::prelude::*;
 
 
-use tokio::sync::mpsc::channel;
 use tokio::net::TcpListener;
 use tokio::codec::{Decoder, Encoder, Framed};
 use bytes::BytesMut;
@@ -34,9 +30,7 @@ use futures::channel::oneshot;
 use num_bigint::BigInt;
 
 use futures::future;
-use futures::StreamExt;
 use futures::FutureExt;
-use futures::TryFutureExt;
 
 
 
@@ -44,7 +38,6 @@ use futures::TryFutureExt;
 use std::pin::Pin;
 
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use std::future::Future;
 
@@ -396,21 +389,14 @@ impl McVerifier {
 pub async fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Receiver<()>) -> ServerStream {
     let listener = TcpListener::bind(&addr).await.expect("Unable to bind TCP listener!");
 
-    let (stop_server, server_done) = channel::<()>(1);
+    /*let stopped_future = future::select(server_done.into_future(), cancelled)
+        .map(|_| Ok(()));*/
 
-    let stopped_future = future::select(server_done.into_future(), cancelled)
-        .map(|_| Ok(()));
 
-    let stop_server = Arc::new(stop_server);
-    let stop_server_new = stop_server.clone();
-
-    //println!("Listener: {:?}", listener);
-
+    let stopped_future = cancelled.map(|_| Ok(()));
 
     let tcp_server = listener.incoming()
         .then(move |socket| {
-            let stop_server = stop_server_new.clone();
-
 
             let (user_tx, user_rx) = oneshot::channel();
             let mut user_tx = Some(user_tx);
@@ -433,7 +419,6 @@ pub async fn server_stream(addr: SocketAddr, cancelled: futures::channel::onesho
                     println!("Got packet: {:?}", pkt);
                     let mut ret = pkt.unwrap().handle_client(&mut handler);
 
-                    let mut user_res = None;
 
                     if let Some(c) = ret.as_mut() {
                         let res = c.await.unwrap();
@@ -445,7 +430,7 @@ pub async fn server_stream(addr: SocketAddr, cancelled: futures::channel::onesho
                         }
 
 
-                        user_res = res.done.map_err(|e| Box::new(e) as Box<dyn std::error::Error>).unwrap();
+                        let user_res = res.done.map_err(|e| Box::new(e) as Box<dyn std::error::Error>).unwrap();
 
                         let mut should_break = false;
 
