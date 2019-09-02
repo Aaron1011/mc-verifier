@@ -18,7 +18,7 @@ use uuid::Uuid;
 use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use base64_serde::base64_serde_type;
 
-pub type HandlerRet = Option<Pin<Box<dyn Future<Output = Result<HandlerAction, std::io::Error>> + Send>>>;
+pub type HandlerRet = Option<Pin<Box<dyn Future<Output = Result<HandlerAction, failure::Error>> + Send>>>;
 
 pub struct HandlerAction {
     pub encryption: Option<Encryption>,

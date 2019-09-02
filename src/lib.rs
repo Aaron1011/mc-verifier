@@ -5,8 +5,6 @@
 
 #![deny(clippy::option_unwrap_used, clippy::result_unwrap_used)]
 
-use std::error::Error;
-
 use futures::compat::{Stream01CompatExt, Compat};
 
 use stream_cancel::StreamExt as _;
@@ -51,6 +49,8 @@ use hyper::Client;
 pub use account_info::created_date;
 pub use packet::AuthedUser;
 
+type Result<T> = std::result::Result<T, failure::Error>;
+
 struct PacketCodec {
     state: u64,
     encryption: Option<Encryption>
@@ -66,25 +66,26 @@ impl PacketCodec {
         self.encryption = Some(enc);
     }
 
-    fn encrypt(&mut self, packet: Box<dyn Packet>, dst: &mut BytesMut) {
+    fn encrypt(&mut self, packet: Box<dyn Packet>, dst: &mut BytesMut) -> Result<()>  {
         println!("Encrypting: {:?}", packet);
         let mut raw = BytesMut::with_capacity(dst.capacity());
-        self.encode_raw(packet, &mut raw);
+        self.encode_raw(packet, &mut raw)?;
 
 
         let enc = self.encryption.as_mut().expect("Missing encrption!");
 
         let mut ciphertext = vec![0; raw.len() + enc.block_size];
 
-        let count = enc.encrypt.update(&raw, &mut ciphertext).unwrap();
-        enc.encrypt.finalize(&mut ciphertext[count..]).unwrap();
+        let count = enc.encrypt.update(&raw, &mut ciphertext)?;
+        enc.encrypt.finalize(&mut ciphertext[count..])?;
         ciphertext.truncate(count);
 
         dst.extend_from_slice(&ciphertext);
+        Ok(())
     }
 
 
-    fn encode_raw(&mut self, packet: Box<dyn Packet>, dst: &mut BytesMut) {
+    fn encode_raw(&mut self, packet: Box<dyn Packet>, dst: &mut BytesMut) -> Result<()> {
         let mut data = Vec::new();
         packet.get_id().write(&mut data);
         packet.write(&mut data);
@@ -98,6 +99,7 @@ impl PacketCodec {
 
         dst.extend_from_slice(&len_bytes);
         dst.extend_from_slice(&data);
+        Ok(())
     }
 }
 
@@ -185,7 +187,7 @@ impl ClientHandler for SimpleHandler {
         });
 
 
-        Some(Pin::from(Box::new(gen) as Box<dyn Future<Output = Result<HandlerAction, std::io::Error>> + Send>))
+        Some(Pin::from(Box::new(gen) as Box<dyn Future<Output = Result<HandlerAction>> + Send>))
     }
 
     fn on_encryptionresponse(&mut self, response: &EncryptionResponse) -> HandlerRet {
@@ -293,23 +295,22 @@ impl ClientHandler for SimpleHandler {
 
 impl Encoder for PacketCodec {
     type Item = Box<dyn Packet + Send>;
-    type Error = std::io::Error;
+    type Error = failure::Error;
 
-    fn encode(&mut self, packet: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, packet: Self::Item, dst: &mut BytesMut) -> Result<()> {
         if self.encryption.is_some() {
             self.encrypt(packet, dst)
         } else {
             self.encode_raw(packet, dst)
         }
-        Ok(())
     }
 }
 
 impl Decoder for PacketCodec {
     type Item = Box<dyn Packet + Send>;
-    type Error = std::io::Error;
+    type Error = failure::Error;
 
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>> {
         let mut len = VarInt::new(0);
         let mut slice = buf.as_ref();
         let reader = &mut slice as &mut dyn std::io::Read;
@@ -361,7 +362,7 @@ impl ServerCanceller {
 }
 
 
-type ServerStream = impl Stream<Item = Result<UserData, Box<dyn Error + Send>>>;
+type ServerStream = impl Stream<Item = Result<UserData>>;
 
 pub struct McVerifier {
     pub stream: ServerStream, 
