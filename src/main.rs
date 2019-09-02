@@ -1,4 +1,3 @@
-#![feature(unsized_locals)]
 #![feature(stmt_expr_attributes)]
 #![feature(proc_macro_hygiene)]
 
