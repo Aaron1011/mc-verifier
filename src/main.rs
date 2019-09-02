@@ -112,7 +112,10 @@ async fn main() {
 
             user_data.disconnect.send(object! {"text" => message }.to_string()).unwrap();
 
-            canceller.swap(None, Ordering::SeqCst).expect("Already tried to shutdown the server!").cancel();
+            // If we've already started the cancellation from another task, do nothing
+            if let Some(cancel) = canceller.swap(None, Ordering::SeqCst) {
+                cancel.cancel();
+            }
         });
     }
 }
