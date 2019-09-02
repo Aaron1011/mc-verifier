@@ -46,12 +46,15 @@ pub struct UserData {
 
 
 mod base64_string {
-    pub fn serialize<S>(string: &String, serializer: S) -> ::std::result::Result<S::Ok, S::Error> where S: super::Serializer {
+    use serde::de::{Unexpected, Error as _};
+    pub fn serialize<S>(string: &str, serializer: S) -> ::std::result::Result<S::Ok, S::Error> where S: super::Serializer {
         super::Base64Standard::serialize(string.as_bytes(), serializer)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<String, D::Error> where D: super::Deserializer<'de> {
-        Ok(String::from_utf8(super::Base64Standard::deserialize(deserializer)?).unwrap())
+        Ok(String::from_utf8(super::Base64Standard::deserialize(deserializer)?).map_err(|e| {
+            D::Error::invalid_value(Unexpected::Bytes(e.as_bytes()), &"valid UTF-8")
+        })?)
     }
 }
 
