@@ -157,7 +157,7 @@ impl ClientHandler for SimpleHandler {
 
     fn on_handshake(&mut self, handshake: &Handshake) -> HandlerRet {
         println!("Handshake handler: {:?}", handshake);
-        None
+        Ok(None)
     }
 
     fn on_loginstart(&mut self, login_start: &LoginStart) -> HandlerRet {
@@ -187,7 +187,7 @@ impl ClientHandler for SimpleHandler {
         });
 
 
-        Some(Pin::from(Box::new(gen) as Box<dyn Future<Output = Result<HandlerAction>> + Send>))
+        Ok(Some(Pin::from(Box::new(gen) as Box<dyn Future<Output = Result<HandlerAction>> + Send>)))
     }
 
     fn on_encryptionresponse(&mut self, response: &EncryptionResponse) -> HandlerRet {
@@ -199,7 +199,7 @@ impl ClientHandler for SimpleHandler {
             &response.shared_secret.data,
             &mut secret,
             Padding::PKCS1
-        ).expect("Failed to decrypt shared secret!");
+        )?;
 
         println!("Changing secret len {:?}", secret_len);
         secret_len = 16;
@@ -211,7 +211,7 @@ impl ClientHandler for SimpleHandler {
             &response.verify_token.data,
             &mut verify_token,
             Padding::PKCS1
-        ).expect("Failed to decrypt verify token!");
+        )?;
 
         if &verify_token[..verify_len] != self.verify_token.as_ref().unwrap() {
             panic!("Verify token incorrect: Should be {:?} but was {:?}", &verify_token[..verify_len],
@@ -231,7 +231,7 @@ impl ClientHandler for SimpleHandler {
 
         println!("Sending request: {:?}", uri);
 
-        Some(Pin::from(Box::new(async move {
+        Ok(Some(Pin::from(Box::new(async move {
 
             let res = client.get(uri).await.unwrap();
                 
@@ -289,7 +289,7 @@ impl ClientHandler for SimpleHandler {
                 packets: Box::pin(packet_fut),
                 done: Ok(Some(user_data))
             })
-        })))
+        }))))
     }
 }
 
@@ -414,7 +414,7 @@ pub async fn server_stream(addr: SocketAddr, cancelled: futures::channel::onesho
 
                 while let Some(pkt) = framed.next().await {
                     println!("Got packet: {:?}", pkt);
-                    let mut ret = pkt.unwrap().handle_client(&mut handler);
+                    let mut ret = pkt.unwrap().handle_client(&mut handler)?;
 
 
                     if let Some(c) = ret.as_mut() {
@@ -427,7 +427,7 @@ pub async fn server_stream(addr: SocketAddr, cancelled: futures::channel::onesho
                         }
 
 
-                        let user_res = res.done.map_err(|e| Box::new(e) as Box<dyn std::error::Error>).unwrap();
+                        let user_res = res.done?;
 
                         let mut should_break = false;
 
@@ -448,11 +448,16 @@ pub async fn server_stream(addr: SocketAddr, cancelled: futures::channel::onesho
 
 
                 println!("Done: {:?}", socket_addr);
+                Ok(())
             };
 
             println!("Proc fut size: {}", std::mem::size_of_val(&proc_fut));
 
-            tokio::spawn(proc_fut);
+            tokio::spawn(proc_fut.map(|r: Result<()>| {
+                if let Err(e) = r {
+                    eprintln!("Error: {:?}", e);
+                }
+            }));
             user_rx.map(|r| Ok(r.unwrap()))
         });
 

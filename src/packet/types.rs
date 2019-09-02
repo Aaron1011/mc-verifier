@@ -18,12 +18,17 @@ use uuid::Uuid;
 use serde::{Serialize, Deserialize, Serializer, Deserializer};
 use base64_serde::base64_serde_type;
 
-pub type HandlerRet = Option<Pin<Box<dyn Future<Output = Result<HandlerAction, failure::Error>> + Send>>>;
+use failure::Fail;
+
+
+type Result<T> = std::result::Result<T, failure::Error>;
+
+pub type HandlerRet = Result<Option<Pin<Box<dyn Future<Output = Result<HandlerAction>> + Send>>>>;
 
 pub struct HandlerAction {
     pub encryption: Option<Encryption>,
     pub packets: Pin<Box<dyn Future<Output = Vec<Box<dyn Packet + Send>>> + Send>>,
-    pub done: Result<Option<UserData>, Box<std::io::Error>>
+    pub done: Result<Option<UserData>>
 }
 
 use base64::STANDARD;
@@ -69,7 +74,7 @@ pub struct Property {
 }
 
 impl Property {
-    pub fn verify(&self) -> Result<bool, Box<dyn std::error::Error>> {
+    pub fn verify(&self) -> Result<bool> {
         let encoded_value = base64::encode(&self.value);
 
         let key = PKey::public_key_from_der(YGGDRASIL_KEY)?;
@@ -95,7 +100,7 @@ impl VarInt {
         VarInt { val }
     }
 
-    pub fn from_read(r: &mut dyn Read) -> Result<VarInt, ReadErr> {
+    pub fn from_read(r: &mut dyn Read) -> std::result::Result<VarInt, ReadErr> {
         let mut var_int = VarInt::new(0);
         var_int.read(r)?;
         Ok(var_int)
@@ -114,7 +119,8 @@ impl Into<usize> for VarInt {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Fail)]
+#[fail(display = "An error occured reading a packet")]
 pub enum ReadErr {
     // The provided buffer was too small
     TooSmall,
@@ -122,16 +128,6 @@ pub enum ReadErr {
     IoError(std::io::Error),
     // Something else
     Other(Box<dyn std::error::Error + Send + Sync>)
-}
-
-impl std::error::Error for ReadErr {
-    fn description(&self) -> &str {
-        "Dummy description"
-    }
-
-    fn cause(&self) -> Option<&dyn std::error::Error> {
-        None
-    }
 }
 
 impl Into<std::io::Error> for ReadErr {
@@ -165,7 +161,7 @@ impl From<std::io::Error> for ReadErr {
     }
 }
 
-pub type ReadResult = Result<(), ReadErr>;
+pub type ReadResult = std::result::Result<(), ReadErr>;
 
 pub trait Writeable {
     fn write(&self, w: &mut dyn Write);
