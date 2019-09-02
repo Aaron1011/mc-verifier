@@ -58,7 +58,7 @@ async fn main() {
 
 
             let https = HttpsConnector::new().unwrap();
-            let mut client = Client::builder().build::<_, hyper::Body>(https);
+            let mut client = Arc::new(Client::builder().build::<_, hyper::Body>(https));
             let uri  = format!("https://minotar.net/body/{}/100.png", user_data.user.id.to_simple()).parse().unwrap();
 
             println!("Requesting: {:?}", uri);
@@ -97,7 +97,7 @@ async fn main() {
             let start_date = if let Some(date) = get_entry() {
                 date
             } else {
-                let date = created_date(&mut client, username.clone()).await.unwrap();
+                let date = created_date(client.clone(), username.clone()).await.unwrap();
                 let mut cache_mut = start_date_cache.write().unwrap();
                 cache_mut.insert(username.clone(), date);
                 drop(cache_mut);

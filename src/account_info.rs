@@ -7,23 +7,28 @@ use hyper::client::connect::Connect;
 use futures::select;
 use std::pin::Pin;
 
-use hyper::Response;
-use hyper::Body;
-
 use std::future::Future;
+use failure::Error;
+type Result<T> = std::result::Result<T, Error>;
+type DateResult = Result<DateTime<Utc>>;
 
+use std::sync::Arc;
 
 // Based on https://gist.github.com/jomo/be7dbb5228187edbb993
-pub async fn created_date<T: Connect + Sync + 'static>(client: &mut Client<T>, name: String) -> Result<DateTime<Utc>, Box<dyn std::error::Error + Send>> {
+pub async fn created_date<T: Connect + Sync + 'static>(client: Arc<Client<T>>, name: String) -> DateResult {
     let mut start = 1263146630; // notch sign-up;
-    let mut end = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let mut end = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+
+    let check_inner = async move |name, time, client: Arc<Client<T>>| {
+        println!("Checking: {:?}", time);
+
+        Ok(client
+            .get(format!("https://api.mojang.com/users/profiles/minecraft/{}?at={}", name, time).parse()?)
+            .await?)
+    };
 
     let check = |name, time| {
-        println!("Checking: {:?}", time);
-        let boxed: Box<dyn Send + Future<Output = Result<Response<Body>, Box<dyn std::error::Error + Send>>>> = Box::new(client
-            .get(format!("https://api.mojang.com/users/profiles/minecraft/{}?at={}", name, time).parse().unwrap())
-            .map(|r| r.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)));
-        Pin::from(boxed)
+        Pin::from(Box::new(check_inner(name, time, client.clone())) as Box<dyn Future<Output = Result<hyper::Response<hyper::Body>>> + Send>)
     };
 
     let calc_mid = |start, end| {

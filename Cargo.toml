@@ -30,6 +30,7 @@ term_size = "1.0.0-beta1"
 chrono = "0.4.7"
 atomicbox = "0.2.0"
 futures-async-stream = "0.1.0-alpha.5"
+failure = "0.1.5"
 
 [dev-dependencies]
 criterion = "0.3.0"
