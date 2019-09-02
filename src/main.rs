@@ -63,8 +63,7 @@ async fn main() {
 
 
             let https = HttpsConnector::new().unwrap();
-            // TODO: re-enable keep-alive when Hyper is using std-futures tokio
-            let mut client = Client::builder().keep_alive(false)/*.executor(ExecutorCompat)*/.build::<_, hyper::Body>(https);
+            let mut client = Client::builder().build::<_, hyper::Body>(https);
             let uri  = format!("https://minotar.net/body/{}/100.png", user_data.user.id.to_simple()).parse().unwrap();
 
             println!("Requesting: {:?}", uri);
