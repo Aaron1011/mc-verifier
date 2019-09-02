@@ -3,6 +3,7 @@
 
 use std::net::SocketAddr;
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 
 
 use futures::StreamExt;
@@ -45,7 +46,6 @@ async fn main() {
 
     #[for_await]
     for user_data in stream {
-        let canceller_new = canceller.clone();
         let start_date_cache = start_date_cache.clone();
 
         println!("Main callback!");
@@ -108,7 +108,8 @@ async fn main() {
 
         user_data.disconnect.send(object! {"text" => message }.to_string()).unwrap();
 
-        //canceller_new.borrow_mut().take().expect("Already tried to shutdown the server!").cancel();
+        canceller.swap(None, Ordering::SeqCst).expect("Already tried to shutdown the server!").cancel();
+       // canceller_new.borrow_mut().take().expect("Already tried to shutdown the server!").cancel();
             //canceller.take().expect("Already tried to stop the server!").cancel();
     }
 }
