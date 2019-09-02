@@ -241,8 +241,7 @@ impl ClientHandler for SimpleHandler {
 
         let hash = self.server_hash(&secret_key);
 
-        // 4 is number of blocking DNS threads
-        let https = HttpsConnector::new(4).unwrap();
+        let https = HttpsConnector::new().unwrap();
         let client = Client::builder()/*.executor(ExecutorCompat)*/.build::<_, hyper::Body>(https);
         //let client = Client::builder().build(https);
         let uri = format!("https://sessionserver.mojang.com/session/minecraft/hasJoined?username={}&serverId={}", self.username.as_ref().unwrap(), &hash)
@@ -390,10 +389,10 @@ pub struct McVerifier {
 }
 
 impl McVerifier {
-    pub fn start(addr: SocketAddr) -> McVerifier {
+    pub async fn start(addr: SocketAddr) -> McVerifier {
         let (sender, receiver) = futures::channel::oneshot::channel();
         McVerifier {
-            stream: server_stream(addr, receiver),
+            stream: server_stream(addr, receiver).await,
             cancel: sender
         }
     }
@@ -403,8 +402,8 @@ impl McVerifier {
     }
 }
 
-pub fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Receiver<()>) -> ServerStream {
-    let listener = TcpListener::bind(&addr).expect("Unable to bind TCP listener!");
+pub async fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Receiver<()>) -> ServerStream {
+    let listener = TcpListener::bind(&addr).await.expect("Unable to bind TCP listener!");
 
     let (stop_server, server_done) = channel::<()>(1);
 
@@ -414,7 +413,7 @@ pub fn server_stream(addr: SocketAddr, cancelled: futures::channel::oneshot::Rec
     let stop_server = Arc::new(stop_server);
     let stop_server_new = stop_server.clone();
 
-    println!("Listener: {:?}", listener);
+    //println!("Listener: {:?}", listener);
 
 
     let tcp_server = listener.incoming()

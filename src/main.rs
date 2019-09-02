@@ -37,21 +37,22 @@ use std::sync::RwLock;
 #[global_allocator]
 static A: System = System;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
 
 
     let addr = "127.0.0.1:25567".parse::<SocketAddr>().unwrap();
     println!("Running server on {:?}", addr);
 
-    let verifier = McVerifier::start(addr);
+    let verifier = McVerifier::start(addr).await;
     let (stream, canceller) = verifier.into_inner();
     let canceller = Arc::new(AtomicOptionBox::new(Some(Box::new(canceller))));
     let start_date_cache = Arc::new(RwLock::new(HashMap::new()));
 
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    rt.block_on(stream.then(move |user_data| {
+    stream.then(move |user_data| {
         let canceller_new = canceller.clone();
         let start_date_cache = start_date_cache.clone();
 
@@ -61,7 +62,7 @@ fn main() {
             println!("Main: Got user {:?}", user_data.user.name);
 
 
-            let https = HttpsConnector::new(4).unwrap();
+            let https = HttpsConnector::new().unwrap();
             // TODO: re-enable keep-alive when Hyper is using std-futures tokio
             let mut client = Client::builder().keep_alive(false)/*.executor(ExecutorCompat)*/.build::<_, hyper::Body>(https);
             let uri  = format!("https://minotar.net/body/{}/100.png", user_data.user.id.to_simple()).parse().unwrap();
@@ -122,5 +123,5 @@ fn main() {
             //canceller_new.borrow_mut().take().expect("Already tried to shutdown the server!").cancel();
             //canceller.take().expect("Already tried to stop the server!").cancel();
         }
-    }).for_each(|_| future::ready(())));
+    }).for_each(|_| future::ready(())).await;
 }

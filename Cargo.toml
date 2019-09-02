@@ -5,22 +5,13 @@ authors = ["Aaron Hill <aa1ronham@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-#tokio = {git = "https://github.com/tokio-rs/tokio" }
-tokio = "0.2.0-alpha.2"
-#tokio-tcp = {git = "https://github.com/tokio-rs/tokio", features = ["incoming"] } 
-#tokio = { path = "../tokio/tokio" }
-#tokio-executor = { path = "../tokio/tokio-executor" }
-#tokio-tcp = { path = "../tokio/tokio-tcp", features = ["incoming"] }
+tokio = "0.2.0-alpha.4"
 byteorder = "1.3.2"
 packet_macro = { path = "packet_macro" }
 lazy_static = "1.4.0"
 bytes = "0.4.12"
 openssl = "0.10.24"
-#hyper = "0.12.32"
-#hyper = { path = "../hyper"}
 hyper = { git = "https://github.com/hyperium/hyper" }
-#hyper-tls = "0.3.2"
-#hyper-tls = { path = "../hyper-tls" }
 hyper-tls = { git = "https://github.com/hyperium/hyper-tls" }
 num-bigint = "0.2.2"
 libc = "0.2.62"
