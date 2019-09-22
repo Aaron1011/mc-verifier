@@ -22,9 +22,8 @@ pub async fn created_date<T: Connect + Sync + 'static>(client: Arc<Client<T>>, n
     let check_inner = async move |name, time, client: Arc<Client<T>>| {
         println!("Checking: {:?}", time);
 
-        Ok(client
-            .get(format!("https://api.mojang.com/users/profiles/minecraft/{}?at={}", name, time).parse()?)
-            .await?)
+        let url = format!("https://api.mojang.com/users/profiles/minecraft/{}?at={}", name, time).parse()?;
+        Ok(client.get(url).await?)
     };
 
     let check = |name, time| {
