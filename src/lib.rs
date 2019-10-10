@@ -390,7 +390,7 @@ pub async fn server_stream(addr: SocketAddr, cancelled: futures::channel::onesho
         .map(|_| Ok(()));*/
 
 
-    let stopped_future = cancelled.map(|_| Ok(()));
+    let stopped_future = cancelled.map(|_| true);
 
     let tcp_server = listener.incoming()
         .then(move |socket| {
@@ -463,6 +463,5 @@ pub async fn server_stream(addr: SocketAddr, cancelled: futures::channel::onesho
 
     println!("TCP server size: {}", std::mem::size_of_val(&tcp_server));
 
-    //tcp_server
-    Box::pin(Compat::new(tcp_server).take_until(Box::new(Compat::new(Box::new(stopped_future)))).compat())
+    Box::pin(tcp_server.take_until(stopped_future))
 }
