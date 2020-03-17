@@ -145,7 +145,7 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
     user_struct.attrs.retain(|attr| {
         let meta = attr.parse_meta().expect("Failed to parse meta");
 
-        if meta.name() != "packet" {
+        if !meta.path().is_ident("packet") {
             return true;
         }
 
@@ -153,13 +153,13 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
             for param in params.nested.iter() {
                 match param {
                     syn::NestedMeta::Meta(syn::Meta::NameValue(val)) => {
-                        if val.ident.to_string() == "id" {
+                        if val.path.is_ident("id") {
                             if let syn::Lit::Int(lit) = &val.lit {
-                                packet_id = Some(lit.value());
+                                packet_id = Some(lit.base10_parse().expect("Bad int"));
                             } else {
                                 panic!("Unexpected id value!");
                             }
-                        } else if val.ident.to_string() == "state" {
+                        } else if val.path.is_ident("state") {
                             if let syn::Lit::Str(lit) = &val.lit {
                                 packet_state = Some(match lit.value().as_str() {
                                     "Handshaking" | "Status" | "Login" | "Play" => lit.value().to_string(),
@@ -168,7 +168,7 @@ fn expand_packet(mut user_struct: syn::ItemStruct) -> PacketData {
                             } else {
                                 panic!("Unexpected state value!");
                             }
-                        } else if val.ident.to_string() == "side" {
+                        } else if val.path.is_ident("side") {
                             if let syn::Lit::Str(lit) = &val.lit {
                                 packet_side = Some(match lit.value().as_str() {
                                     "Client" | "Server" => lit.value().to_string(),
