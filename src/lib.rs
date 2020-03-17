@@ -18,7 +18,7 @@ use futures::prelude::*;
 
 
 use tokio::net::TcpListener;
-use tokio::codec::{Decoder, Encoder, Framed};
+use tokio_util::codec::{Decoder, Encoder, Framed};
 use bytes::BytesMut;
 
 use futures::channel::oneshot;
@@ -33,7 +33,6 @@ use std::net::SocketAddr;
 
 use std::future::Future;
 
-use hyper_tls::HttpsConnector;
 
 pub mod packet;
 mod account_info;
@@ -42,7 +41,6 @@ use crate::packet::*;
 use crate::packet::client::*;
 use crate::packet::server::*;
 
-use hyper::Client;
 
 pub use account_info::created_date;
 pub use packet::AuthedUser;
@@ -221,28 +219,22 @@ impl ClientHandler for SimpleHandler {
 
         let hash = self.server_hash(&secret_key).unwrap();
 
-        let https = HttpsConnector::new().unwrap();
-        let client = Client::builder()/*.executor(ExecutorCompat)*/.build::<_, hyper::Body>(https);
-        //let client = Client::builder().build(https);
-        let uri = format!("https://sessionserver.mojang.com/session/minecraft/hasJoined?username={}&serverId={}", self.username.as_ref().unwrap(), &hash)
-            .parse().unwrap();
+        let uri = format!("https://sessionserver.mojang.com/session/minecraft/hasJoined?username={}&serverId={}", self.username.as_ref().unwrap(), &hash);
 
         println!("Sending request: {:?}", uri);
 
         Ok(Some(Pin::from(Box::new(async move {
 
-            let res = client.get(uri).await?;
+            let data: String = reqwest::get(&uri).await?.text().await?;
                 
 
             let secret_key = secret_key.clone();
-            println!("Got response: {:?}", res);
 
-            let body = res.into_body();
 
-            let data = String::from_utf8(body.fold(vec![], |mut acc, chunk| {
+            /*let data = String::from_utf8(body.fold(vec![], |mut acc, chunk| {
                 acc.extend_from_slice(&chunk.unwrap());
                 future::ready(acc)
-            }).await)?;
+            }).await)?;*/
 
             println!("Got body: {:?}", data);
 
@@ -291,11 +283,10 @@ impl ClientHandler for SimpleHandler {
     }
 }
 
-impl Encoder for PacketCodec {
-    type Item = Box<dyn Packet + Send>;
+impl Encoder<Box<dyn Packet + Send>> for PacketCodec {
     type Error = failure::Error;
 
-    fn encode(&mut self, packet: Self::Item, dst: &mut BytesMut) -> Result<()> {
+    fn encode(&mut self, packet: Box<dyn Packet + Send>, dst: &mut BytesMut) -> Result<()> {
         if self.encryption.is_some() {
             self.encrypt(packet, dst)
         } else {
@@ -390,7 +381,7 @@ pub async fn server_stream(addr: SocketAddr, cancelled: futures::channel::onesho
 
     let stopped_future = cancelled.map(|_| true);
 
-    let tcp_server = listener.incoming()
+    let tcp_server = listener
         .then(move |socket| {
 
             let (user_tx, user_rx) = oneshot::channel();

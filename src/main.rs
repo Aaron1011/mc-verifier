@@ -6,6 +6,8 @@ use std::net::SocketAddr;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
+use std::sync::Arc;
+
 
 use futures::StreamExt;
 use std::alloc::System;
@@ -18,12 +20,7 @@ use mc_verifier::{McVerifier, created_date};
 use termimage;
 use image;
 
-use hyper_tls::HttpsConnector;
-use hyper::Client;
-
 use futures::future;
-
-use std::sync::Arc;
 
 use atomicbox::AtomicOptionBox;
 use std::sync::RwLock;
@@ -57,21 +54,12 @@ async fn main() {
             println!("Main: Got user {:?}", user_data.user.name);
 
 
-            let https = HttpsConnector::new().unwrap();
-            let mut client = Arc::new(Client::builder().build::<_, hyper::Body>(https));
-            let uri  = format!("https://minotar.net/body/{}/100.png", user_data.user.id.to_simple()).parse().unwrap();
+            let uri  = format!("https://minotar.net/body/{}/100.png", user_data.user.id.to_simple());
 
             println!("Requesting: {:?}", uri);
 
 
-            let res = client.get(uri).await.unwrap();
-            let body = res.into_body();
-            let folded = body.fold(vec![], |mut acc, chunk| {
-                    acc.extend_from_slice(&chunk.unwrap().as_ref());
-                    future::ready(acc)
-            });
-
-            let data: Vec<u8> = folded.await;
+            let data = reqwest::get(&uri).await.unwrap().bytes().await.unwrap();
 
             std::fs::write("blah_skin.png", &data).unwrap();
 
@@ -97,7 +85,7 @@ async fn main() {
             let start_date = if let Some(date) = get_entry() {
                 date
             } else {
-                let date = created_date(client.clone(), username.clone()).await.unwrap();
+                let date = created_date(username.clone()).await.unwrap();
                 let mut cache_mut = start_date_cache.write().unwrap();
                 cache_mut.insert(username.clone(), date);
                 drop(cache_mut);

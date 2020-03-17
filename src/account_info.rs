@@ -1,9 +1,6 @@
-use hyper::Client;
 use chrono::{NaiveDateTime, DateTime, Utc};
 use futures::future;
-use hyper::StatusCode;
 use futures::future::FutureExt;
-use hyper::client::connect::Connect;
 use futures::select;
 use std::pin::Pin;
 
@@ -15,19 +12,19 @@ type DateResult = Result<DateTime<Utc>>;
 use std::sync::Arc;
 
 // Based on https://gist.github.com/jomo/be7dbb5228187edbb993
-pub async fn created_date<T: Connect + Sync + 'static>(client: Arc<Client<T>>, name: String) -> DateResult {
+pub async fn created_date(name: String) -> DateResult {
     let mut start = 1263146630; // notch sign-up;
     let mut end = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
 
-    let check_inner = async move |name, time, client: Arc<Client<T>>| {
+    let check_inner = async move |name, time| {
         println!("Checking: {:?}", time);
 
-        let url = format!("https://api.mojang.com/users/profiles/minecraft/{}?at={}", name, time).parse()?;
-        Ok(client.get(url).await?)
+        let url = format!("https://api.mojang.com/users/profiles/minecraft/{}?at={}", name, time);
+        Ok(reqwest::get(&url).await?)
     };
 
     let check = |name, time| {
-        Pin::from(Box::new(check_inner(name, time, client.clone())) as Box<dyn Future<Output = Result<hyper::Response<hyper::Body>>> + Send>)
+        Pin::from(Box::new(check_inner(name, time)) as Box<dyn Send + Future<Output = Result<reqwest::Response>>>)
     };
 
     let calc_mid = |start, end| {
@@ -54,7 +51,7 @@ pub async fn created_date<T: Connect + Sync + 'static>(client: Arc<Client<T>>, n
         loop {
             select! {
                 cur_res = cur_fut => {
-                    if cur_res?.status() == StatusCode::OK {
+                    if cur_res?.status() == reqwest::StatusCode::OK {
                         end = mid;
                         cur_fut = left_done.unwrap_or(left_fut);
                     } else {
