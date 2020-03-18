@@ -63,7 +63,7 @@ async fn main() {
 
             std::fs::write("blah_skin.png", &data).unwrap();
 
-            let skin_front = image::load_from_memory_with_format(&data, image::ImageFormat::PNG).expect("Failed to decode image!");
+            let skin_front = image::load_from_memory_with_format(&data, image::ImageFormat::Png).expect("Failed to decode image!");
             let term_dims = term_size::dimensions().unwrap();
             let term_dims = (term_dims.0 as u32, term_dims.1 as u32);
             let new_s = termimage::ops::image_resized_size(skin_front.dimensions(), term_dims, true);
