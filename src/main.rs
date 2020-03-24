@@ -1,6 +1,5 @@
 #![feature(stmt_expr_attributes)]
 #![feature(proc_macro_hygiene)]
-#![feature(async_closure)]
 
 use std::net::SocketAddr;
 use std::collections::HashMap;
@@ -35,7 +34,7 @@ async fn main() {
 
 
     let addr = "127.0.0.1:25567".parse::<SocketAddr>().unwrap();
-    println!("Running server on {:?}", addr);
+    println!("Running server on addr {:?}", addr);
 
     let verifier = McVerifier::start(addr).await;
     let (stream, canceller) = verifier.into_inner();
