@@ -8,7 +8,6 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 
-use futures::StreamExt;
 use std::alloc::System;
 
 use json::object;
@@ -18,8 +17,6 @@ use mc_verifier::{McVerifier, created_date};
 
 use termimage;
 use image;
-
-use futures::future;
 
 use atomicbox::AtomicOptionBox;
 use std::sync::RwLock;

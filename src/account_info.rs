@@ -9,8 +9,6 @@ use failure::Error;
 type Result<T> = std::result::Result<T, Error>;
 type DateResult = Result<DateTime<Utc>>;
 
-use std::sync::Arc;
-
 // Based on https://gist.github.com/jomo/be7dbb5228187edbb993
 pub async fn created_date(name: String) -> DateResult {
     let mut start = 1263146630; // notch sign-up;

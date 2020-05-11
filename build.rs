@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -18,7 +17,7 @@ fn main() {
     std::fs::copy("dbclient", out_path).unwrap();
 }
 
-fn run_command(cmd: &str, args: &[&str]) {
+/*fn run_command(cmd: &str, args: &[&str]) {
    if !Command::new(cmd)
         .args(args)
         .spawn()
@@ -28,4 +27,4 @@ fn run_command(cmd: &str, args: &[&str]) {
         .success() {
             panic!("{} failed!", cmd);
         }
-}
+}*/
