@@ -5,7 +5,7 @@ authors = ["Aaron Hill <aa1ronham@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-tokio = { version = "0.2.13", features = ["macros"] }
+tokio = { version = "0.2.16", features = ["macros"] }
 byteorder = "1.3.4"
 packet_macro = { path = "packet_macro" }
 lazy_static = "1.4.0"
@@ -14,16 +14,15 @@ openssl = "0.10.28"
 num-bigint = "0.2.6"
 libc = "0.2.68"
 json = "0.12.4"
-stream-cancel = "0.5.2"
 uuid = { version = "0.8.1", features = ["serde"] }
-serde = { version = "1.0.105", features = ["derive"] }
-serde_json = "1.0.50"
+serde = { version = "1.0.106", features = ["derive"] }
+serde_json = "1.0.51"
 base64 = "0.12.0"
-image = "0.23.2"
+image = "0.23.3"
 env_logger = "0.7.1"
 chrono = "0.4.11"
 atomicbox = "0.3.0"
-futures-async-stream = "0.1.3"
+futures-async-stream = "0.2.0"
 failure = "0.1.7"
 tokio-util = { version = "0.3.1", features = ["codec"] }
 futures = "0.3.4"

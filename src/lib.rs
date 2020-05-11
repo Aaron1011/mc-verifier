@@ -5,8 +5,6 @@
 
 #![deny(clippy::option_unwrap_used, clippy::result_unwrap_used)]
 
-use stream_cancel::StreamExt as _;
-
 use openssl::rsa::{Rsa, Padding};
 use openssl::pkey::Private;
 use openssl::pkey::PKey;
